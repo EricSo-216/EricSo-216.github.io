@@ -858,6 +858,9 @@
 const CONFIG = {
   ADMIN_EMAIL:   'etso@savills.com.hk',
   ADMIN_PASS:    'OCB28!',
+  // Paste your deployed Google Apps Script Web App URL here (see Code.gs + setup guide).
+  // Must end in /exec. This is what makes sign-ins/approvals sync across everyone's devices.
+  SHEET_API_URL: 'https://script.google.com/macros/s/AKfycbzGpcMCLxgy8_LuCtL52PlQTOYI65OHoIW81iFxfcHQtKXEO-iN4gW8fxtBcMsQrt4ujw/exec',
   // Approved users: add name, email, password for each recipient
   USERS: [
     { name: 'Eric So',        email: 'etso@savills.com.hk',           pass: 'OCB28!'   },
@@ -886,23 +889,38 @@ function fmtDate(iso) {
   });
 }
 
-// ── ACCESS LOG STORAGE (localStorage — no token, no server, matches Dataroom) ──
-// NOTE: localStorage is per-browser/per-device. This means the admin dashboard
-// only shows sessions that happened in the SAME browser used to view it — it will
-// NOT show sign-ins that happened on a different user's computer or browser.
-const LOG_KEY = 'ocb_access_log';
+// ── ACCESS LOG STORAGE (Google Apps Script Web App — cross-device, no exposed secrets) ──
+// Set CONFIG.SHEET_API_URL below to your deployed Apps Script /exec URL.
+// See the accompanying Code.gs file + setup instructions for how to deploy this.
 
 async function readGist() {
+  if (!CONFIG.SHEET_API_URL || CONFIG.SHEET_API_URL.includes('YOUR_DEPLOYMENT_ID')) {
+    console.warn('readGist: CONFIG.SHEET_API_URL is not set yet.');
+    return [];
+  }
   try {
-    const raw = localStorage.getItem(LOG_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch(e) { console.warn('readGist (localStorage) error:', e); return []; }
+    const r = await fetch(CONFIG.SHEET_API_URL, { method: 'GET' });
+    if (!r.ok) { console.warn('readGist HTTP error:', r.status, r.statusText); return []; }
+    const data = await r.json();
+    return Array.isArray(data) ? data : [];
+  } catch(e) { console.warn('readGist error:', e); return []; }
 }
 
 async function writeGist(log) {
+  if (!CONFIG.SHEET_API_URL || CONFIG.SHEET_API_URL.includes('YOUR_DEPLOYMENT_ID')) {
+    console.warn('writeGist: CONFIG.SHEET_API_URL is not set yet.');
+    return;
+  }
   try {
-    localStorage.setItem(LOG_KEY, JSON.stringify(log));
-  } catch(e) { console.warn('writeGist (localStorage) error:', e); }
+    // text/plain avoids a CORS preflight (Apps Script doesn't handle OPTIONS);
+    // the Apps Script side still parses this as JSON regardless of the header.
+    const r = await fetch(CONFIG.SHEET_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(log)
+    });
+    if (!r.ok) console.warn('writeGist HTTP error:', r.status, r.statusText);
+  } catch(e) { console.warn('writeGist error:', e); }
 }
 
 // ── SESSION STATE ──
@@ -1038,7 +1056,7 @@ window.approveRequest = async (reqId) => {
     await writeGist(log);
 
     // Show admin the password to share
-    const msg = `Access approved for ${entry.name} (${entry.email}).\n\nTemporary password to share:\n${tempPass}\n\nPlease add this user to CONFIG.USERS in the HTML file:\n{ name: '${entry.name}', email: '${entry.email}', pass: '${tempPass}' }`;
+    const msg = `Access approved for ${entry.name} (${entry.email}).\n\nTemporary password to share:\n${tempPass}\n\nThis password now works immediately — no need to edit the HTML file. Just share it with ${entry.name}.`;
     alert(msg);
 
     // Refresh dashboard
@@ -1054,7 +1072,26 @@ window.doSignIn = async () => {
   const pass  = document.getElementById('siPass').value;
   const err   = document.getElementById('siErr');
   err.textContent = '';
-  const user = CONFIG.USERS.find(u => u.email.toLowerCase() === email && u.pass === pass);
+
+  // 1) Check the hardcoded CONFIG.USERS list first
+  let user = CONFIG.USERS.find(u => u.email.toLowerCase() === email && u.pass === pass);
+
+  // 2) Fall back to approved access requests — this is what makes an
+  //    admin-approved, auto-generated password actually work at sign-in,
+  //    without needing to hand-edit CONFIG.USERS and redeploy.
+  if (!user) {
+    try {
+      const log = await readGist();
+      const req = log.find(e =>
+        e.type === 'access_request' &&
+        e.approved &&
+        e.email.trim().toLowerCase() === email &&
+        e.password === pass
+      );
+      if (req) user = { name: req.name, email: req.email, pass: req.password };
+    } catch(e) { console.warn('Approved-request lookup failed:', e); }
+  }
+
   if (!user) return err.textContent = 'Incorrect email or password.';
   await onSignIn(user);
 };
@@ -1487,8 +1524,8 @@ window.switchAuthTab = (tab) => {
       </div>
       <div class="tbl-wrap">
         <table><thead><tr>
-          <th>Floor</th><th>Inflated Area (sf)</th><th>GFA (sf)</th><th>Saleable (sf)</th>
-          <th>Floor Step (HK$)</th><th>PSF (inflated)</th><th>PSF (GFA)</th><th>Total Value (HK$M)</th>
+          <th>Floor</th><th>Gross Area (sf)</th><th>GFA (sf)</th><th>Saleable Area (sf)</th>
+          <th>Floor Step (HK$)</th><th>PSF (Gross)</th><th>PSF (GFA)</th><th>Total Value (HK$M)</th>
         </tr></thead><tbody id="p1Body"></tbody></table>
       </div>
 
@@ -1498,14 +1535,14 @@ window.switchAuthTab = (tab) => {
       </div>
       <div class="tbl-wrap">
         <table><thead><tr>
-          <th>Floor</th><th>Inflated Area (sf)</th><th>GFA (sf)</th><th>Saleable (sf)</th>
-          <th>Floor Step (HK$)</th><th>PSF (inflated)</th><th>PSF (GFA)</th><th>Total Value (HK$M)</th>
+          <th>Floor</th><th>Gross Area (sf)</th><th>GFA (sf)</th><th>Saleable Area (sf)</th>
+          <th>Floor Step (HK$)</th><th>PSF (Gross)</th><th>PSF (GFA)</th><th>Total Value (HK$M)</th>
         </tr></thead><tbody id="p2Body"></tbody></table>
       </div>
 
             <div class="sec-title" style="margin-top:24px;">
         <h3>Avg PSF vs Total Strata Value (Office)</h3>
-        <span class="sum-note" style="font-size:11px;color:var(--ink-60);font-style:italic;">How average PSF (inflated &amp; GFA) drives total office value — current assumptions highlighted</span>
+        <span class="sum-note" style="font-size:11px;color:var(--ink-60);font-style:italic;">How average PSF (Gross &amp; GFA) drives total office value — current assumptions highlighted</span>
       </div>
       <div class="chart-card">
         <canvas id="psfChart"></canvas>
@@ -1528,8 +1565,8 @@ window.switchAuthTab = (tab) => {
       <div class="sec-title"><h3>En-bloc (Whole Lot) Pricing · 5F–18F</h3></div>
       <div class="tbl-wrap">
         <table><thead><tr>
-          <th>Floors</th><th>Inflated Area (sf)</th><th>GFA (sf)</th><th>Saleable (sf)</th>
-          <th>PSF (inflated)</th><th>PSF (GFA)</th><th>Total Value (HK$M)</th>
+          <th>Floors</th><th>Gross Area (sf)</th><th>GFA (sf)</th><th>Saleable Area (sf)</th>
+          <th>PSF (Gross)</th><th>PSF (GFA)</th><th>Total Value (HK$M)</th>
         </tr></thead><tbody id="wlBody"></tbody></table>
       </div>
     </div><!-- /tab-pricing -->
@@ -1923,7 +1960,7 @@ function updatePsfChart() {
         labels,
         datasets: [
           {
-            label: 'Total Value via PSF (Inflated)',
+            label: 'Total Value via PSF (Gross)',
             data: inflLine,
             borderColor: '#1a3a5c',
             backgroundColor: 'rgba(26,58,92,0.08)',
