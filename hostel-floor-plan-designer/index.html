@@ -1457,8 +1457,8 @@ function askRoomOutline(){
       <div style="font-weight:700;margin-bottom:8px;">Room outline</div>
       <div style="font-size:12px;color:var(--ink-60);margin-bottom:10px;">Generates straight walls around a rectangle. Check all 4 for a closed room, 3 for a U-shape, or two adjacent sides (e.g. Top + Left) for an L-shaped corner.</div>
       <div style="display:flex;gap:8px;margin-bottom:8px;">
-        <label style="flex:1;font-size:11.5px;">Width (cm)<input type="number" id="roWidth" value="400" min="100" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px;margin-top:3px;"></label>
-        <label style="flex:1;font-size:11.5px;">Depth (cm)<input type="number" id="roDepth" value="300" min="100" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px;margin-top:3px;"></label>
+        <label style="flex:1;font-size:11.5px;">Width (cm)<input type="number" id="roWidth" value="200" min="100" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px;margin-top:3px;"></label>
+        <label style="flex:1;font-size:11.5px;">Depth (cm)<input type="number" id="roDepth" value="450" min="100" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px;margin-top:3px;"></label>
       </div>
       <label style="font-size:11.5px;display:block;margin-bottom:10px;">Thickness (cm)<input type="number" id="roThickness" value="${defaultThickness}" min="8" max="30" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px;margin-top:3px;"></label>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px;font-size:12px;">
@@ -1477,8 +1477,8 @@ function askRoomOutline(){
     function close(val){ document.body.removeChild(overlay); resolve(val); }
     box.querySelector("#roCancel").onclick = ()=> close(null);
     box.querySelector("#roOk").onclick = ()=>{
-      const width = parseFloat(box.querySelector("#roWidth").value)||400;
-      const depth = parseFloat(box.querySelector("#roDepth").value)||300;
+      const width = parseFloat(box.querySelector("#roWidth").value)||200;
+      const depth = parseFloat(box.querySelector("#roDepth").value)||450;
       const thickness = parseFloat(box.querySelector("#roThickness").value)||15;
       const sides = {
         top: box.querySelector("#roTop").checked,
