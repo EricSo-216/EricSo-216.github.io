@@ -696,9 +696,12 @@ function strokeFor(overlapping){ return overlapping ? "#dc2626" : "#16a34a"; }
 function wallSubSegments(wall){
   const len = wallLength(wall);
   const ranges = (wall.doors||[]).map(d => {
-    const c = Math.max(0,Math.min(1,d.t)) * len;
     const hw = Math.min(d.width, len) / 2;
-    return { lo: Math.max(0,c-hw), hi: Math.min(len,c+hw), door:d };
+    // clamp the door's center so its full width always fits on the wall, instead of
+    // silently clipping the rendered gap (which made the door look narrower than d.width)
+    const minC = hw, maxC = Math.max(hw, len - hw);
+    const c = Math.min(maxC, Math.max(minC, d.t * len));
+    return { lo:c-hw, hi:c+hw, door:d };
   }).sort((a,b)=>a.lo-b.lo);
   const segs = [];
   let cursor = 0;
@@ -749,9 +752,12 @@ function renderWalls(){
         dg.appendChild(el("polygon", { points:`${ax2},${midY-3} ${ax2},${midY+3} ${ax2+5},${midY}`, fill:"#fff" }));
         dg.appendChild(el("rect", { x:r.lo, y:-w.thickness/2, width:doorW, height:w.thickness, fill:"none", stroke:"#334155", "stroke-width":1, "stroke-dasharray":"2 3", opacity:0.5 }));
       } else {
-        dg.appendChild(el("line", { x1:r.lo, y1:w.thickness/2, x2:r.lo, y2:w.thickness/2+doorW, stroke:"#334155", "stroke-width":2 }));
+        const hingeRight = r.door.hinge === "right";
+        const hingeX = hingeRight ? r.hi : r.lo;
+        const otherX = hingeRight ? r.lo : r.hi;
+        dg.appendChild(el("line", { x1:hingeX, y1:w.thickness/2, x2:hingeX, y2:w.thickness/2+doorW, stroke:"#334155", "stroke-width":2 }));
         dg.appendChild(el("path", {
-          d: `M ${r.lo} ${w.thickness/2+doorW} A ${doorW} ${doorW} 0 0 0 ${r.hi} ${w.thickness/2}`,
+          d: `M ${hingeX} ${w.thickness/2+doorW} A ${doorW} ${doorW} 0 0 ${hingeRight?1:0} ${otherX} ${w.thickness/2}`,
           stroke:"#334155", "stroke-width":1, fill:"none", "stroke-dasharray":"3 3"
         }));
       }
@@ -1324,7 +1330,10 @@ function renderWallInspector(){
   const dTitle = document.createElement("div"); dTitle.className="panel-title"; dTitle.textContent="Doors on this wall"; wrap.appendChild(dTitle);
 
   (w.doors||[]).forEach(d=>{
+    if (d.width < DOOR_MIN) d.width = DOOR_MIN;
+    if (!d.hinge) d.hinge = "left";
     const isSliding = d.type === "sliding";
+    const isRightHinge = d.hinge === "right";
     const row = document.createElement("div"); row.className = "door-row";
     const pillOn = "flex:1;padding:3px 4px;border-radius:5px;border:1px solid var(--accent);font-size:10.5px;font-weight:600;background:var(--accent);color:#fff;";
     const pillOff = "flex:1;padding:3px 4px;border-radius:5px;border:1px solid var(--rule);font-size:10.5px;font-weight:600;background:#fff;color:var(--ink-60);";
@@ -1335,9 +1344,15 @@ function renderWallInspector(){
           <button class="doorTypeBtn" data-type="hinged" style="${!isSliding?pillOn:pillOff}">Hinged</button>
           <button class="doorTypeBtn" data-type="sliding" style="${isSliding?pillOn:pillOff}">Sliding</button>
         </div>
+        ${!isSliding ? `
+        <div style="display:flex;align-items:center;gap:5px;">
+          <span style="width:34px;">opens</span>
+          <button class="doorHingeBtn" data-hinge="left" style="${!isRightHinge?pillOn:pillOff}">Left</button>
+          <button class="doorHingeBtn" data-hinge="right" style="${isRightHinge?pillOn:pillOff}">Right</button>
+        </div>` : ``}
         <div style="display:flex;align-items:center;gap:5px;">
           <span style="width:34px;">width</span>
-          <input type="range" min="${DOOR_MIN-10}" max="${DOOR_MAX+10}" step="1" value="${d.width}" title="door width">
+          <input type="range" min="${DOOR_MIN}" max="${DOOR_MAX+10}" step="1" value="${d.width}" title="door width (min 80cm / 800mm)">
           <span style="width:40px;text-align:right;">${Math.round(d.width)}cm</span>
         </div>
         <div style="display:flex;align-items:center;gap:5px;">
@@ -1349,13 +1364,16 @@ function renderWallInspector(){
       <button class="x" title="remove door">✕</button>
     `;
     const [widthSlider, posSlider] = row.querySelectorAll('input[type=range]');
-    const widthValueLabel = row.querySelector('div > div:nth-child(2) span:last-child');
-    widthSlider.oninput = ()=>{ d.width = +widthSlider.value; widthValueLabel.textContent = Math.round(d.width)+"cm"; renderWalls(); };
+    const widthValueLabel = widthSlider.nextElementSibling;
+    widthSlider.oninput = ()=>{ d.width = Math.max(DOOR_MIN, +widthSlider.value); widthValueLabel.textContent = Math.round(d.width)+"cm"; renderWalls(); };
     widthSlider.onchange = ()=>{ pushHistory(); saveLocal(); };
     posSlider.oninput = ()=>{ d.t = +posSlider.value/100; renderWalls(); };
     posSlider.onchange = ()=>{ pushHistory(); saveLocal(); };
     row.querySelectorAll(".doorTypeBtn").forEach(btn=>{
       btn.onclick = ()=>{ pushHistory(); d.type = btn.dataset.type; renderAll(); saveLocal(); };
+    });
+    row.querySelectorAll(".doorHingeBtn").forEach(btn=>{
+      btn.onclick = ()=>{ pushHistory(); d.hinge = btn.dataset.hinge; renderAll(); saveLocal(); };
     });
     row.querySelector(".x").onclick = ()=>{ pushHistory(); w.doors = w.doors.filter(x=>x.id!==d.id); renderAll(); saveLocal(); };
     wrap.appendChild(row);
@@ -1366,7 +1384,7 @@ function renderWallInspector(){
   btnAddDoor.onclick = ()=>{
     pushHistory();
     w.doors = w.doors || [];
-    w.doors.push({ id: uid(), t:0.5, width: DOOR_DEFAULT, type:"hinged" });
+    w.doors.push({ id: uid(), t:0.5, width: DOOR_DEFAULT, type:"hinged", hinge:"left" });
     renderAll(); saveLocal();
   };
   const btnAddSliding = document.createElement("button"); btnAddSliding.className = "btn"; btnAddSliding.style.marginTop="0"; btnAddSliding.textContent = "＋ Sliding door";
