@@ -259,7 +259,7 @@
         <div class="row"><span class="swatch-dot" style="background:#cbd5e1;border:1.5px solid #475569"></span> Pillar (also blocks overlap)</div>
         <div class="row"><span class="swatch-dot" style="background:rgba(37,99,235,0.15);border:1.5px dashed #2563eb"></span> Enclosed room area</div>
       </div>
-      <div class="tip">Tip: shift-click or drag a box on empty floor to multi-select furniture. Ctrl+C / Ctrl+V (or the header buttons) copy-paste the selection. Hold Space or middle-drag to pan.</div>
+      <div class="tip">Tip: shift-click or drag a box on empty floor to multi-select furniture, then drag any selected item to move the whole group. Ctrl+C / Ctrl+V (or the header buttons) copy-paste the selection. Scroll to pan the plan, Ctrl+scroll (or pinch) to zoom — or hold Space / middle-drag to pan. Drawing a wall snaps to clean 0°/45°/90° angles near a corner; hold Shift for a free angle.</div>
 
       <details class="ref">
         <summary>Minimum size reference</summary>
@@ -585,6 +585,18 @@ function screenToWorld(evt){
   return { x:p.x, y:p.y };
 }
 function snapVal(v){ return state.snap ? Math.round(v/5)*5 : v; }
+function snapWallPoint(from, to, freeAngle){
+  const plain = { x: snapVal(to.x), y: snapVal(to.y) };
+  if (freeAngle) return plain;
+  const dx = to.x - from.x, dy = to.y - from.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 1) return plain;
+  const snapDeg = 15;
+  const snapRad = snapDeg * Math.PI / 180;
+  const angle = Math.round(Math.atan2(dy, dx) / snapRad) * snapRad;
+  const snappedDist = snapVal(dist);
+  return { x: from.x + Math.cos(angle) * snappedDist, y: from.y + Math.sin(angle) * snappedDist };
+}
 
 function zoomBy(factor, center){
   const v = state.viewBox;
@@ -1286,7 +1298,7 @@ document.getElementById("btnCalibrate").onclick = ()=>{
 document.getElementById("btnWallTool").onclick = ()=>{
   if (mode === "wall"){ setMode("select"); return; }
   setMode("wall");
-  showHint("Wall tool: click to start a wall, click again to place points, Esc / double-click to finish.");
+  showHint("Wall tool: click to start a wall, click again to place points (snaps to clean angles — hold Shift to draw freely). Esc / double-click to finish.");
 };
 
 document.getElementById("btnPillarTool").onclick = ()=>{
@@ -1443,7 +1455,7 @@ function askRoomOutline(){
     const defaultThickness = parseFloat(document.getElementById("wallThickness").value) || 15;
     box.innerHTML = `
       <div style="font-weight:700;margin-bottom:8px;">Room outline</div>
-      <div style="font-size:12px;color:var(--ink-60);margin-bottom:10px;">Generates straight walls around a rectangle. Uncheck a side if it's already an existing wall, or should stay open.</div>
+      <div style="font-size:12px;color:var(--ink-60);margin-bottom:10px;">Generates straight walls around a rectangle. Check all 4 for a closed room, 3 for a U-shape, or two adjacent sides (e.g. Top + Left) for an L-shaped corner.</div>
       <div style="display:flex;gap:8px;margin-bottom:8px;">
         <label style="flex:1;font-size:11.5px;">Width (cm)<input type="number" id="roWidth" value="400" min="100" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px;margin-top:3px;"></label>
         <label style="flex:1;font-size:11.5px;">Depth (cm)<input type="number" id="roDepth" value="300" min="100" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px;margin-top:3px;"></label>
@@ -1510,8 +1522,16 @@ window.addEventListener("keyup", onKeyUp);
 
 function onWheel(e){
   e.preventDefault();
-  const pos = screenToWorld(e);
-  zoomBy(e.deltaY < 0 ? 0.9 : 1/0.9, pos);
+  if (e.ctrlKey || e.metaKey){
+    const pos = screenToWorld(e);
+    zoomBy(e.deltaY < 0 ? 0.9 : 1/0.9, pos);
+    return;
+  }
+  const p0 = screenToWorld(e);
+  const p1 = screenToWorld({ clientX: e.clientX + e.deltaX, clientY: e.clientY + e.deltaY });
+  state.viewBox.x += (p1.x - p0.x);
+  state.viewBox.y += (p1.y - p0.y);
+  applyViewBox();
 }
 
 function onPointerDown(e){
@@ -1550,10 +1570,10 @@ function onPointerDown(e){
   }
 
   if (mode === "wall"){
-    const p = { x: snapVal(pos.x), y: snapVal(pos.y) };
     if (!wallDraft){
-      wallDraft = p;
+      wallDraft = { x: snapVal(pos.x), y: snapVal(pos.y) };
     } else {
+      const p = snapWallPoint(wallDraft, pos, e.shiftKey);
       pushHistory();
       const thickness = parseFloat(document.getElementById("wallThickness").value) || 15;
       const w = { id: uid(), x1: wallDraft.x, y1: wallDraft.y, x2: p.x, y2: p.y, thickness, hasWindow:false, doors:[], overlapping:false };
@@ -1657,7 +1677,7 @@ function onPointerDown(e){
 
 function onPointerMove(e){
   if (mode === "wall" && wallDraft){
-    renderWallPreview(screenToWorld(e));
+    renderWallPreview(snapWallPoint(wallDraft, screenToWorld(e), e.shiftKey));
   }
   if (!drag) return;
   const pos = screenToWorld(e);
