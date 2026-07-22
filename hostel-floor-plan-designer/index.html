@@ -739,11 +739,22 @@ function renderWalls(){
       const dg = el("g", { "data-id":w.id, "data-doorid":r.door.id, "data-kind":"door", class:"door-group" });
       dg.appendChild(el("line", { x1:r.lo, y1:-w.thickness/2, x2:r.lo, y2:w.thickness/2, stroke:"#334155", "stroke-width":1.2 }));
       dg.appendChild(el("line", { x1:r.hi, y1:-w.thickness/2, x2:r.hi, y2:w.thickness/2, stroke:"#334155", "stroke-width":1.2 }));
-      dg.appendChild(el("line", { x1:r.lo, y1:w.thickness/2, x2:r.lo, y2:w.thickness/2+doorW, stroke:"#334155", "stroke-width":2 }));
-      dg.appendChild(el("path", {
-        d: `M ${r.lo} ${w.thickness/2+doorW} A ${doorW} ${doorW} 0 0 0 ${r.hi} ${w.thickness/2}`,
-        stroke:"#334155", "stroke-width":1, fill:"none", "stroke-dasharray":"3 3"
-      }));
+      if (r.door.type === "sliding"){
+        const panelThickness = Math.max(3, w.thickness*0.35);
+        const py = w.thickness/2 + 2;
+        dg.appendChild(el("rect", { x:r.lo, y:py, width:doorW, height:panelThickness, rx:1, fill:"#334155", opacity:0.85 }));
+        const midY = py + panelThickness/2;
+        const ax1 = r.lo + doorW*0.28, ax2 = r.lo + doorW*0.72;
+        dg.appendChild(el("line", { x1:ax1, y1:midY, x2:ax2, y2:midY, stroke:"#fff", "stroke-width":1.2 }));
+        dg.appendChild(el("polygon", { points:`${ax2},${midY-3} ${ax2},${midY+3} ${ax2+5},${midY}`, fill:"#fff" }));
+        dg.appendChild(el("rect", { x:r.lo, y:-w.thickness/2, width:doorW, height:w.thickness, fill:"none", stroke:"#334155", "stroke-width":1, "stroke-dasharray":"2 3", opacity:0.5 }));
+      } else {
+        dg.appendChild(el("line", { x1:r.lo, y1:w.thickness/2, x2:r.lo, y2:w.thickness/2+doorW, stroke:"#334155", "stroke-width":2 }));
+        dg.appendChild(el("path", {
+          d: `M ${r.lo} ${w.thickness/2+doorW} A ${doorW} ${doorW} 0 0 0 ${r.hi} ${w.thickness/2}`,
+          stroke:"#334155", "stroke-width":1, fill:"none", "stroke-dasharray":"3 3"
+        }));
+      }
       g.appendChild(dg);
     }
     const lbl = el("text", {
@@ -880,11 +891,28 @@ function renderGroupHandles(){
     }
   }
   const pad = 8;
-  handleLayer.appendChild(el("rect", { x:minX-pad, y:minY-pad, width:(maxX-minX)+pad*2, height:(maxY-minY)+pad*2, fill:"none", stroke:"#2563eb", "stroke-width":1.4, "stroke-dasharray":"6 3" }));
+  handleLayer.appendChild(el("rect", { x:minX-pad, y:minY-pad, width:(maxX-minX)+pad*2, height:(maxY-minY)+pad*2, fill:"none", stroke:"#2563eb", "stroke-width":1.4, "stroke-dasharray":"6 3", "pointer-events":"none" }));
   for (const f of items){
     handleLayer.appendChild(el("g", { transform:`translate(${f.cx},${f.cy}) rotate(${f.rot})` },
-      el("rect", { x:-f.w/2-1, y:-f.h/2-1, width:f.w+2, height:f.h+2, fill:"none", stroke:"#2563eb", "stroke-width":1, opacity:0.6 })
+      el("rect", { x:-f.w/2-1, y:-f.h/2-1, width:f.w+2, height:f.h+2, fill:"none", stroke:"#2563eb", "stroke-width":1, opacity:0.6, "pointer-events":"none" })
     ));
+  }
+}
+
+function renderWallGroupHandles(){
+  const items = state.walls.filter(w=>selection.ids.includes(w.id));
+  if (!items.length) return;
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  for (const w of items){
+    const rp = wallRectParams(w);
+    for (const c of rectCorners(rp.cx, rp.cy, rp.w, rp.h, rp.rot)){
+      minX=Math.min(minX,c.x); minY=Math.min(minY,c.y); maxX=Math.max(maxX,c.x); maxY=Math.max(maxY,c.y);
+    }
+  }
+  const pad = 8;
+  handleLayer.appendChild(el("rect", { x:minX-pad, y:minY-pad, width:(maxX-minX)+pad*2, height:(maxY-minY)+pad*2, fill:"none", stroke:"#2563eb", "stroke-width":1.4, "stroke-dasharray":"6 3", "pointer-events":"none" }));
+  for (const w of items){
+    handleLayer.appendChild(el("line", { x1:w.x1, y1:w.y1, x2:w.x2, y2:w.y2, stroke:"#2563eb", "stroke-width":Math.max(w.thickness+2,4), opacity:0.35, "pointer-events":"none" }));
   }
 }
 
@@ -893,7 +921,8 @@ function renderHandles(){
   if (selection.type === "furniture" && selection.ids.length > 1){ renderGroupHandles(); return; }
   if (selection.type === "furniture" && selection.ids.length === 1){ renderRectHandles(state.furniture.find(x=>x.id===selection.ids[0]), "furniture"); return; }
   if (selection.type === "pillar"){ renderRectHandles(state.pillars.find(x=>x.id===selection.ids[0]), "pillar"); return; }
-  if (selection.type === "wall"){
+  if (selection.type === "wall" && selection.ids.length > 1){ renderWallGroupHandles(); return; }
+  if (selection.type === "wall" && selection.ids.length === 1){
     const w = state.walls.find(x=>x.id===selection.ids[0]);
     if (!w) return;
     const g = el("g", {});
@@ -940,14 +969,15 @@ function renderInspector(){
 
   const title = document.createElement("div");
   title.className = "panel-title";
-  title.textContent = selection.type === "furniture" && selection.ids.length > 1
-    ? selection.ids.length + " items selected"
+  title.textContent = (selection.type === "furniture" || selection.type === "wall") && selection.ids.length > 1
+    ? selection.ids.length + " " + selection.type + " selected"
     : (selection.type ? "Selected " + selection.type : "Overview");
   inspector.appendChild(title);
 
   if (selection.type === "furniture" && selection.ids.length === 1){ renderFurnitureInspector(); return; }
   if (selection.type === "furniture" && selection.ids.length > 1){ renderGroupInspector(); return; }
-  if (selection.type === "wall"){ renderWallInspector(); return; }
+  if (selection.type === "wall" && selection.ids.length === 1){ renderWallInspector(); return; }
+  if (selection.type === "wall" && selection.ids.length > 1){ renderWallGroupInspector(); return; }
   if (selection.type === "pillar"){ renderPillarInspector(); return; }
 
   const s1 = document.createElement("div"); s1.className = "stat-row";
@@ -1086,6 +1116,33 @@ function renderGroupInspector(){
   }
 }
 
+function renderWallGroupInspector(){
+  const items = state.walls.filter(w=>selection.ids.includes(w.id));
+  const wrap = document.createElement("div");
+  const okCount = items.filter(w=>!w.overlapping).length;
+  wrap.innerHTML = `
+    <div class="stat-row"><span>Walls selected</span><b>${items.length}</b></div>
+    <div class="stat-row"><span>OK / Overlapping</span><b>${okCount} / ${items.length-okCount}</b></div>
+  `;
+  const btnDel = document.createElement("button"); btnDel.className = "btn danger"; btnDel.textContent = "✕ Delete walls";
+  btnDel.onclick = ()=>{
+    pushHistory();
+    const ids = selection.ids;
+    state.walls = state.walls.filter(w=>!ids.includes(w.id));
+    clearSelection(); recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
+  };
+  wrap.appendChild(btnDel);
+  inspector.appendChild(wrap);
+
+  const hr = document.createElement("hr"); hr.className = "sep"; inspector.appendChild(hr);
+  const listTitle = document.createElement("div"); listTitle.className = "panel-title"; listTitle.textContent = "In this selection"; inspector.appendChild(listTitle);
+  for (const w of items){
+    const card = document.createElement("div"); card.className = "item-card selected";
+    card.innerHTML = `<span class="dot" style="background:#334155"></span><span class="meta"><span class="t">Wall${w.hasWindow?" (window)":""}</span><br><span class="d">${Math.round(wallLength(w))} cm</span></span><span class="badge ${w.overlapping?"bad":"ok"}">${w.overlapping?"overlap":"ok"}</span>`;
+    inspector.appendChild(card);
+  }
+}
+
 function renderPillarInspector(){
   const p = state.pillars.find(x=>x.id===selection.ids[0]);
   if (!p){ clearSelection(); renderInspector(); return; }
@@ -1140,9 +1197,17 @@ function renderWallInspector(){
   const dTitle = document.createElement("div"); dTitle.className="panel-title"; dTitle.textContent="Doors on this wall"; wrap.appendChild(dTitle);
 
   (w.doors||[]).forEach(d=>{
+    const isSliding = d.type === "sliding";
     const row = document.createElement("div"); row.className = "door-row";
+    const pillOn = "flex:1;padding:3px 4px;border-radius:5px;border:1px solid var(--accent);font-size:10.5px;font-weight:600;background:var(--accent);color:#fff;";
+    const pillOff = "flex:1;padding:3px 4px;border-radius:5px;border:1px solid var(--rule);font-size:10.5px;font-weight:600;background:#fff;color:var(--ink-60);";
     row.innerHTML = `
       <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;">
+        <div style="display:flex;align-items:center;gap:5px;">
+          <span style="width:34px;">type</span>
+          <button class="doorTypeBtn" data-type="hinged" style="${!isSliding?pillOn:pillOff}">Hinged</button>
+          <button class="doorTypeBtn" data-type="sliding" style="${isSliding?pillOn:pillOff}">Sliding</button>
+        </div>
         <div style="display:flex;align-items:center;gap:5px;">
           <span style="width:34px;">width</span>
           <input type="range" min="${DOOR_MIN-10}" max="${DOOR_MAX+10}" step="1" value="${d.width}" title="door width">
@@ -1157,23 +1222,35 @@ function renderWallInspector(){
       <button class="x" title="remove door">✕</button>
     `;
     const [widthSlider, posSlider] = row.querySelectorAll('input[type=range]');
-    const widthValueLabel = row.querySelector('div > div:first-child span:last-child');
+    const widthValueLabel = row.querySelector('div > div:nth-child(2) span:last-child');
     widthSlider.oninput = ()=>{ d.width = +widthSlider.value; widthValueLabel.textContent = Math.round(d.width)+"cm"; renderWalls(); };
     widthSlider.onchange = ()=>{ pushHistory(); saveLocal(); };
     posSlider.oninput = ()=>{ d.t = +posSlider.value/100; renderWalls(); };
     posSlider.onchange = ()=>{ pushHistory(); saveLocal(); };
+    row.querySelectorAll(".doorTypeBtn").forEach(btn=>{
+      btn.onclick = ()=>{ pushHistory(); d.type = btn.dataset.type; renderAll(); saveLocal(); };
+    });
     row.querySelector(".x").onclick = ()=>{ pushHistory(); w.doors = w.doors.filter(x=>x.id!==d.id); renderAll(); saveLocal(); };
     wrap.appendChild(row);
   });
 
-  const btnAddDoor = document.createElement("button"); btnAddDoor.className = "btn"; btnAddDoor.textContent = "＋ Add door";
+  const btnRow = document.createElement("div"); btnRow.style.cssText = "display:flex;gap:6px;";
+  const btnAddDoor = document.createElement("button"); btnAddDoor.className = "btn"; btnAddDoor.style.marginTop="0"; btnAddDoor.textContent = "＋ Hinged door";
   btnAddDoor.onclick = ()=>{
     pushHistory();
     w.doors = w.doors || [];
-    w.doors.push({ id: uid(), t:0.5, width: DOOR_DEFAULT });
+    w.doors.push({ id: uid(), t:0.5, width: DOOR_DEFAULT, type:"hinged" });
     renderAll(); saveLocal();
   };
-  wrap.appendChild(btnAddDoor);
+  const btnAddSliding = document.createElement("button"); btnAddSliding.className = "btn"; btnAddSliding.style.marginTop="0"; btnAddSliding.textContent = "＋ Sliding door";
+  btnAddSliding.onclick = ()=>{
+    pushHistory();
+    w.doors = w.doors || [];
+    w.doors.push({ id: uid(), t:0.5, width: DOOR_DEFAULT, type:"sliding" });
+    renderAll(); saveLocal();
+  };
+  btnRow.appendChild(btnAddDoor); btnRow.appendChild(btnAddSliding);
+  wrap.appendChild(btnRow);
 
   const btnDel = document.createElement("button"); btnDel.className = "btn danger"; btnDel.textContent = "✕ Delete wall";
   btnDel.onclick = ()=>{
@@ -1693,10 +1770,20 @@ function onPointerDown(e){
     return;
   }
   if (wallGroup){
-    selection = { type:"wall", ids:[wallGroup.dataset.id] };
-    const w = state.walls.find(x=>x.id===wallGroup.dataset.id);
+    const id = wallGroup.dataset.id;
+    if (e.shiftKey && selection.type === "wall"){
+      const ids = selection.ids.includes(id) ? selection.ids.filter(x=>x!==id) : selection.ids.concat([id]);
+      selection = { type: ids.length ? "wall" : null, ids };
+    } else if (!(selection.type === "wall" && selection.ids.includes(id) && selection.ids.length > 1)){
+      selection = { type:"wall", ids:[id] };
+    }
     pushHistory();
-    drag = { type:"move-wall", id:w.id, start:{x1:w.x1,y1:w.y1,x2:w.x2,y2:w.y2}, startWorld:pos };
+    const startPositions = {};
+    for (const sid of selection.ids){
+      const sw = state.walls.find(x=>x.id===sid);
+      if (sw) startPositions[sid] = { x1:sw.x1, y1:sw.y1, x2:sw.x2, y2:sw.y2 };
+    }
+    drag = { type:"move-wall-group", ids: selection.ids.slice(), startPositions, startWorld: pos };
     renderHandles(); renderInspector();
     e.preventDefault();
     return;
@@ -1752,12 +1839,15 @@ function onPointerMove(e){
       recomputeCollisions(); renderObstacleLayers(); renderHandles();
       break;
     }
-    case "move-wall": {
-      const w = state.walls.find(x=>x.id===drag.id);
-      if (!w) return;
+    case "move-wall-group": {
       const dx = pos.x - drag.startWorld.x, dy = pos.y - drag.startWorld.y;
-      w.x1 = snapVal(drag.start.x1+dx); w.y1 = snapVal(drag.start.y1+dy);
-      w.x2 = snapVal(drag.start.x2+dx); w.y2 = snapVal(drag.start.y2+dy);
+      for (const id of drag.ids){
+        const w = state.walls.find(x=>x.id===id);
+        if (!w) continue;
+        const sp = drag.startPositions[id];
+        w.x1 = snapVal(sp.x1+dx); w.y1 = snapVal(sp.y1+dy);
+        w.x2 = snapVal(sp.x2+dx); w.y2 = snapVal(sp.y2+dy);
+      }
       recomputeCollisions(); recomputeAreas(); renderObstacleLayers(); renderAreas(); renderHandles();
       break;
     }
@@ -1810,6 +1900,18 @@ function onPointerUp(e){
         } else {
           selection = { type:"furniture", ids: idsInBox };
         }
+      } else {
+        const wallIdsInBox = state.walls.filter(w=>{
+          const mx = (w.x1+w.x2)/2, my = (w.y1+w.y2)/2;
+          return mx>=rx0 && mx<=rx1 && my>=ry0 && my<=ry1;
+        }).map(w=>w.id);
+        if (wallIdsInBox.length){
+          if (e.shiftKey && selection.type === "wall"){
+            selection = { type:"wall", ids: Array.from(new Set(selection.ids.concat(wallIdsInBox))) };
+          } else {
+            selection = { type:"wall", ids: wallIdsInBox };
+          }
+        }
       }
     }
     clearNode(overlayLayer);
@@ -1840,7 +1942,7 @@ function onKeyDown(e){
     e.preventDefault();
     pushHistory();
     if (selection.type === "furniture") state.furniture = state.furniture.filter(x=>!selection.ids.includes(x.id));
-    if (selection.type === "wall") state.walls = state.walls.filter(x=>x.id!==selection.ids[0]);
+    if (selection.type === "wall") state.walls = state.walls.filter(x=>!selection.ids.includes(x.id));
     if (selection.type === "pillar") state.pillars = state.pillars.filter(x=>x.id!==selection.ids[0]);
     clearSelection(); recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
   }
