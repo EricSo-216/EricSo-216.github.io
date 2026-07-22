@@ -881,21 +881,31 @@ function renderRectHandles(obj, kind){
   handleLayer.appendChild(g);
 }
 
-function renderGroupHandles(){
-  const items = state.furniture.filter(f=>selection.ids.includes(f.id));
-  if (!items.length) return;
+function furnitureGroupBBox(items){
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
   for (const f of items){
     for (const c of rectCorners(f.cx,f.cy,f.w,f.h,f.rot)){
       minX=Math.min(minX,c.x); minY=Math.min(minY,c.y); maxX=Math.max(maxX,c.x); maxY=Math.max(maxY,c.y);
     }
   }
+  return { minX, minY, maxX, maxY, cx:(minX+maxX)/2, cy:(minY+maxY)/2 };
+}
+
+function renderGroupHandles(){
+  const items = state.furniture.filter(f=>selection.ids.includes(f.id));
+  if (!items.length) return;
+  const bbox = furnitureGroupBBox(items);
   const pad = 8;
-  handleLayer.appendChild(el("rect", { x:minX-pad, y:minY-pad, width:(maxX-minX)+pad*2, height:(maxY-minY)+pad*2, fill:"none", stroke:"#2563eb", "stroke-width":1.4, "stroke-dasharray":"6 3", "pointer-events":"none" }));
+  handleLayer.appendChild(el("rect", { x:bbox.minX-pad, y:bbox.minY-pad, width:(bbox.maxX-bbox.minX)+pad*2, height:(bbox.maxY-bbox.minY)+pad*2, fill:"none", stroke:"#2563eb", "stroke-width":1.4, "stroke-dasharray":"6 3", "pointer-events":"none" }));
   for (const f of items){
     handleLayer.appendChild(el("g", { transform:`translate(${f.cx},${f.cy}) rotate(${f.rot})` },
       el("rect", { x:-f.w/2-1, y:-f.h/2-1, width:f.w+2, height:f.h+2, fill:"none", stroke:"#2563eb", "stroke-width":1, opacity:0.6, "pointer-events":"none" })
     ));
+  }
+  if (items.length > 1){
+    const handleY = bbox.minY - pad - 22;
+    handleLayer.appendChild(el("line", { x1:bbox.cx, y1:bbox.minY-pad, x2:bbox.cx, y2:handleY, stroke:"#2563eb", "stroke-width":1.2, "pointer-events":"none" }));
+    handleLayer.appendChild(el("circle", { cx:bbox.cx, cy:handleY, r:6, fill:"#2563eb", class:"handle group-rotate-handle", cursor:"grab" }));
   }
 }
 
@@ -1728,6 +1738,22 @@ function onPointerDown(e){
     e.preventDefault();
     return;
   }
+  if (handle && handle.classList.contains("group-rotate-handle")){
+    const items = state.furniture.filter(f=>selection.ids.includes(f.id));
+    if (!items.length) return;
+    const bbox = furnitureGroupBBox(items);
+    pushHistory();
+    const starts = {};
+    for (const f of items) starts[f.id] = { cx:f.cx, cy:f.cy, rot:f.rot };
+    drag = {
+      type:"rotate-furniture-group", ids: selection.ids.slice(),
+      pivot: { x:bbox.cx, y:bbox.cy },
+      startAngle: Math.atan2(pos.y-bbox.cy, pos.x-bbox.cx),
+      starts
+    };
+    e.preventDefault();
+    return;
+  }
   if (handle && handle.classList.contains("wall-endpoint")){
     const w = state.walls.find(x=>x.id===selection.ids[0]);
     if (!w) return;
@@ -1828,6 +1854,24 @@ function onPointerMove(e){
         f.cy = snapVal(sp.cy + dy);
       }
       recomputeCollisions(); renderObstacleLayers(); renderHandles();
+      break;
+    }
+    case "rotate-furniture-group": {
+      const curAngle = Math.atan2(pos.y-drag.pivot.y, pos.x-drag.pivot.x);
+      let deltaDeg = (curAngle - drag.startAngle) * 180/Math.PI;
+      if (!e.shiftKey) deltaDeg = Math.round(deltaDeg/15)*15;
+      const rad = deltaDeg*Math.PI/180;
+      const cos = Math.cos(rad), sin = Math.sin(rad);
+      for (const id of drag.ids){
+        const f = state.furniture.find(x=>x.id===id);
+        if (!f) continue;
+        const s = drag.starts[id];
+        const ox = s.cx - drag.pivot.x, oy = s.cy - drag.pivot.y;
+        f.cx = snapVal(drag.pivot.x + (ox*cos - oy*sin));
+        f.cy = snapVal(drag.pivot.y + (ox*sin + oy*cos));
+        f.rot = ((s.rot + deltaDeg) % 360 + 360) % 360;
+      }
+      recomputeCollisions(); renderObstacleLayers(); renderHandles(); renderInspector();
       break;
     }
     case "move-pillar": {
