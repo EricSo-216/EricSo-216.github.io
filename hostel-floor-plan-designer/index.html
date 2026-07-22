@@ -753,11 +753,16 @@ function renderWalls(){
         dg.appendChild(el("rect", { x:r.lo, y:-w.thickness/2, width:doorW, height:w.thickness, fill:"none", stroke:"#334155", "stroke-width":1, "stroke-dasharray":"2 3", opacity:0.5 }));
       } else {
         const hingeRight = r.door.hinge === "right";
+        const swingIn = r.door.swing === "in";
         const hingeX = hingeRight ? r.hi : r.lo;
         const otherX = hingeRight ? r.lo : r.hi;
-        dg.appendChild(el("line", { x1:hingeX, y1:w.thickness/2, x2:hingeX, y2:w.thickness/2+doorW, stroke:"#334155", "stroke-width":2 }));
+        const sign = swingIn ? -1 : 1;
+        const baseY = sign * w.thickness/2;
+        const tipY = baseY + sign*doorW;
+        const sweepFlag = (hingeRight !== swingIn) ? 1 : 0;
+        dg.appendChild(el("line", { x1:hingeX, y1:baseY, x2:hingeX, y2:tipY, stroke:"#334155", "stroke-width":2 }));
         dg.appendChild(el("path", {
-          d: `M ${hingeX} ${w.thickness/2+doorW} A ${doorW} ${doorW} 0 0 ${hingeRight?1:0} ${otherX} ${w.thickness/2}`,
+          d: `M ${hingeX} ${tipY} A ${doorW} ${doorW} 0 0 ${sweepFlag} ${otherX} ${baseY}`,
           stroke:"#334155", "stroke-width":1, fill:"none", "stroke-dasharray":"3 3"
         }));
       }
@@ -1332,8 +1337,10 @@ function renderWallInspector(){
   (w.doors||[]).forEach(d=>{
     if (d.width < DOOR_MIN) d.width = DOOR_MIN;
     if (!d.hinge) d.hinge = "left";
+    if (!d.swing) d.swing = "out";
     const isSliding = d.type === "sliding";
     const isRightHinge = d.hinge === "right";
+    const isSwingIn = d.swing === "in";
     const row = document.createElement("div"); row.className = "door-row";
     const pillOn = "flex:1;padding:3px 4px;border-radius:5px;border:1px solid var(--accent);font-size:10.5px;font-weight:600;background:var(--accent);color:#fff;";
     const pillOff = "flex:1;padding:3px 4px;border-radius:5px;border:1px solid var(--rule);font-size:10.5px;font-weight:600;background:#fff;color:var(--ink-60);";
@@ -1346,9 +1353,14 @@ function renderWallInspector(){
         </div>
         ${!isSliding ? `
         <div style="display:flex;align-items:center;gap:5px;">
-          <span style="width:34px;">opens</span>
+          <span style="width:34px;">hinge</span>
           <button class="doorHingeBtn" data-hinge="left" style="${!isRightHinge?pillOn:pillOff}">Left</button>
           <button class="doorHingeBtn" data-hinge="right" style="${isRightHinge?pillOn:pillOff}">Right</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;">
+          <span style="width:34px;">swing</span>
+          <button class="doorSwingBtn" data-swing="in" style="${isSwingIn?pillOn:pillOff}">In</button>
+          <button class="doorSwingBtn" data-swing="out" style="${!isSwingIn?pillOn:pillOff}">Out</button>
         </div>` : ``}
         <div style="display:flex;align-items:center;gap:5px;">
           <span style="width:34px;">width</span>
@@ -1375,6 +1387,9 @@ function renderWallInspector(){
     row.querySelectorAll(".doorHingeBtn").forEach(btn=>{
       btn.onclick = ()=>{ pushHistory(); d.hinge = btn.dataset.hinge; renderAll(); saveLocal(); };
     });
+    row.querySelectorAll(".doorSwingBtn").forEach(btn=>{
+      btn.onclick = ()=>{ pushHistory(); d.swing = btn.dataset.swing; renderAll(); saveLocal(); };
+    });
     row.querySelector(".x").onclick = ()=>{ pushHistory(); w.doors = w.doors.filter(x=>x.id!==d.id); renderAll(); saveLocal(); };
     wrap.appendChild(row);
   });
@@ -1384,7 +1399,7 @@ function renderWallInspector(){
   btnAddDoor.onclick = ()=>{
     pushHistory();
     w.doors = w.doors || [];
-    w.doors.push({ id: uid(), t:0.5, width: DOOR_DEFAULT, type:"hinged", hinge:"left" });
+    w.doors.push({ id: uid(), t:0.5, width: DOOR_DEFAULT, type:"hinged", hinge:"left", swing:"out" });
     renderAll(); saveLocal();
   };
   const btnAddSliding = document.createElement("button"); btnAddSliding.className = "btn"; btnAddSliding.style.marginTop="0"; btnAddSliding.textContent = "＋ Sliding door";
