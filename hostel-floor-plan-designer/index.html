@@ -926,8 +926,32 @@ function renderWallGroupHandles(){
   }
 }
 
+function renderMixedGroupHandles(){
+  const members = selMembers();
+  if (!members.length) return;
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  for (const m of members){
+    const rp = m.kind==="furniture" ? { cx:m.ref.cx, cy:m.ref.cy, w:m.ref.w, h:m.ref.h, rot:m.ref.rot } : wallRectParams(m.ref);
+    for (const c of rectCorners(rp.cx, rp.cy, rp.w, rp.h, rp.rot)){
+      minX=Math.min(minX,c.x); minY=Math.min(minY,c.y); maxX=Math.max(maxX,c.x); maxY=Math.max(maxY,c.y);
+    }
+  }
+  const pad = 8;
+  handleLayer.appendChild(el("rect", { x:minX-pad, y:minY-pad, width:(maxX-minX)+pad*2, height:(maxY-minY)+pad*2, fill:"none", stroke:"#2563eb", "stroke-width":1.4, "stroke-dasharray":"6 3", "pointer-events":"none" }));
+  for (const m of members){
+    if (m.kind === "furniture"){
+      handleLayer.appendChild(el("g", { transform:`translate(${m.ref.cx},${m.ref.cy}) rotate(${m.ref.rot})` },
+        el("rect", { x:-m.ref.w/2-1, y:-m.ref.h/2-1, width:m.ref.w+2, height:m.ref.h+2, fill:"none", stroke:"#2563eb", "stroke-width":1, opacity:0.6, "pointer-events":"none" })
+      ));
+    } else if (m.kind === "wall"){
+      handleLayer.appendChild(el("line", { x1:m.ref.x1, y1:m.ref.y1, x2:m.ref.x2, y2:m.ref.y2, stroke:"#2563eb", "stroke-width":Math.max(m.ref.thickness+2,4), opacity:0.35, "pointer-events":"none" }));
+    }
+  }
+}
+
 function renderHandles(){
   clearNode(handleLayer);
+  if (selection.type === "mixed"){ renderMixedGroupHandles(); return; }
   if (selection.type === "furniture" && selection.ids.length > 1){ renderGroupHandles(); return; }
   if (selection.type === "furniture" && selection.ids.length === 1){ renderRectHandles(state.furniture.find(x=>x.id===selection.ids[0]), "furniture"); return; }
   if (selection.type === "pillar"){ renderRectHandles(state.pillars.find(x=>x.id===selection.ids[0]), "pillar"); return; }
@@ -972,6 +996,56 @@ function niceScaleLength(viewWcm){
 /* ============================== INSPECTOR ============================== */
 function clearSelection(){ selection = { type:null, ids:[] }; }
 
+/* Mixed (furniture + wall) selection support. A composite id is "kind:id".
+   Selections stay in their plain kind-specific form (bare ids) whenever every
+   member is the same kind, so all existing single-kind code paths keep working
+   unchanged; only a true mix of kinds uses type:"mixed" with composite ids. */
+function makeComposite(kind, id){ return kind + ":" + id; }
+function splitComposite(cid){ const i = cid.indexOf(":"); return [cid.slice(0,i), cid.slice(i+1)]; }
+function toComposites(sel){ return sel.type === "mixed" ? sel.ids.slice() : sel.ids.map(id=>makeComposite(sel.type, id)); }
+function mergeableComposites(){
+  return (selection.type==="furniture" || selection.type==="wall" || selection.type==="mixed") ? toComposites(selection) : [];
+}
+function finalizeSelection(compositeIds){
+  if (!compositeIds.length){ selection = { type:null, ids:[] }; return; }
+  const kinds = new Set(compositeIds.map(c=>splitComposite(c)[0]));
+  if (kinds.size === 1){
+    const kind = [...kinds][0];
+    selection = { type: kind, ids: compositeIds.map(c=>splitComposite(c)[1]) };
+  } else {
+    selection = { type:"mixed", ids: compositeIds };
+  }
+}
+function isGroupMember(kind, id){
+  if (selection.type === kind && selection.ids.includes(id) && selection.ids.length > 1) return true;
+  if (selection.type === "mixed" && selection.ids.includes(makeComposite(kind,id))) return true;
+  return false;
+}
+function selMembers(){
+  return toComposites(selection).map(cid=>{
+    const [kind,id] = splitComposite(cid);
+    const ref = kind==="furniture" ? state.furniture.find(x=>x.id===id) : kind==="wall" ? state.walls.find(x=>x.id===id) : null;
+    return { kind, id, cid, ref };
+  }).filter(m=>m.ref);
+}
+function startGroupDrag(pos){
+  if (selection.type === "mixed"){
+    const starts = {};
+    for (const m of selMembers()){
+      starts[m.cid] = m.kind==="furniture" ? { cx:m.ref.cx, cy:m.ref.cy } : { x1:m.ref.x1, y1:m.ref.y1, x2:m.ref.x2, y2:m.ref.y2 };
+    }
+    drag = { type:"move-mixed-group", ids: selection.ids.slice(), starts, startWorld: pos };
+  } else if (selection.type === "furniture"){
+    const startPositions = {};
+    for (const sid of selection.ids){ const sf = state.furniture.find(x=>x.id===sid); if (sf) startPositions[sid] = { cx:sf.cx, cy:sf.cy }; }
+    drag = { type:"move-furniture-group", ids: selection.ids.slice(), startPositions, startWorld: pos };
+  } else if (selection.type === "wall"){
+    const startPositions = {};
+    for (const sid of selection.ids){ const sw = state.walls.find(x=>x.id===sid); if (sw) startPositions[sid] = { x1:sw.x1, y1:sw.y1, x2:sw.x2, y2:sw.y2 }; }
+    drag = { type:"move-wall-group", ids: selection.ids.slice(), startPositions, startWorld: pos };
+  }
+}
+
 function renderInspector(){
   clearNode(inspector);
   const okCount = state.furniture.filter(f=>!f.overlapping).length + state.pillars.filter(p=>!p.overlapping).length + state.walls.filter(w=>!w.overlapping).length;
@@ -979,11 +1053,14 @@ function renderInspector(){
 
   const title = document.createElement("div");
   title.className = "panel-title";
-  title.textContent = (selection.type === "furniture" || selection.type === "wall") && selection.ids.length > 1
-    ? selection.ids.length + " " + selection.type + " selected"
-    : (selection.type ? "Selected " + selection.type : "Overview");
+  title.textContent = selection.type === "mixed"
+    ? selection.ids.length + " items selected"
+    : (selection.type === "furniture" || selection.type === "wall") && selection.ids.length > 1
+      ? selection.ids.length + " " + selection.type + " selected"
+      : (selection.type ? "Selected " + selection.type : "Overview");
   inspector.appendChild(title);
 
+  if (selection.type === "mixed"){ renderMixedGroupInspector(); return; }
   if (selection.type === "furniture" && selection.ids.length === 1){ renderFurnitureInspector(); return; }
   if (selection.type === "furniture" && selection.ids.length > 1){ renderGroupInspector(); return; }
   if (selection.type === "wall" && selection.ids.length === 1){ renderWallInspector(); return; }
@@ -1134,6 +1211,8 @@ function renderWallGroupInspector(){
     <div class="stat-row"><span>Walls selected</span><b>${items.length}</b></div>
     <div class="stat-row"><span>OK / Overlapping</span><b>${okCount} / ${items.length-okCount}</b></div>
   `;
+  const btnCopy = document.createElement("button"); btnCopy.className = "btn"; btnCopy.textContent = "⧉ Copy walls";
+  btnCopy.onclick = copySelection;
   const btnDel = document.createElement("button"); btnDel.className = "btn danger"; btnDel.textContent = "✕ Delete walls";
   btnDel.onclick = ()=>{
     pushHistory();
@@ -1141,7 +1220,7 @@ function renderWallGroupInspector(){
     state.walls = state.walls.filter(w=>!ids.includes(w.id));
     clearSelection(); recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
   };
-  wrap.appendChild(btnDel);
+  wrap.appendChild(btnCopy); wrap.appendChild(btnDel);
   inspector.appendChild(wrap);
 
   const hr = document.createElement("hr"); hr.className = "sep"; inspector.appendChild(hr);
@@ -1149,6 +1228,44 @@ function renderWallGroupInspector(){
   for (const w of items){
     const card = document.createElement("div"); card.className = "item-card selected";
     card.innerHTML = `<span class="dot" style="background:#334155"></span><span class="meta"><span class="t">Wall${w.hasWindow?" (window)":""}</span><br><span class="d">${Math.round(wallLength(w))} cm</span></span><span class="badge ${w.overlapping?"bad":"ok"}">${w.overlapping?"overlap":"ok"}</span>`;
+    inspector.appendChild(card);
+  }
+}
+
+function renderMixedGroupInspector(){
+  const members = selMembers();
+  const furnCount = members.filter(m=>m.kind==="furniture").length;
+  const wallCount = members.filter(m=>m.kind==="wall").length;
+  const okCount = members.filter(m=>!m.ref.overlapping).length;
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `
+    <div class="stat-row"><span>Furniture / Walls</span><b>${furnCount} / ${wallCount}</b></div>
+    <div class="stat-row"><span>OK / Overlapping</span><b>${okCount} / ${members.length-okCount}</b></div>
+  `;
+  const btnCopy = document.createElement("button"); btnCopy.className = "btn"; btnCopy.textContent = "⧉ Copy group";
+  btnCopy.onclick = copySelection;
+  const btnDel = document.createElement("button"); btnDel.className = "btn danger"; btnDel.textContent = "✕ Delete group";
+  btnDel.onclick = ()=>{
+    pushHistory();
+    const delFurn = new Set(), delWall = new Set();
+    for (const m of members){ (m.kind==="furniture" ? delFurn : delWall).add(m.id); }
+    state.furniture = state.furniture.filter(x=>!delFurn.has(x.id));
+    state.walls = state.walls.filter(x=>!delWall.has(x.id));
+    clearSelection(); recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
+  };
+  wrap.appendChild(btnCopy); wrap.appendChild(btnDel);
+  inspector.appendChild(wrap);
+
+  const hr = document.createElement("hr"); hr.className = "sep"; inspector.appendChild(hr);
+  const listTitle = document.createElement("div"); listTitle.className = "panel-title"; listTitle.textContent = "In this selection"; inspector.appendChild(listTitle);
+  for (const m of members){
+    const card = document.createElement("div"); card.className = "item-card selected";
+    if (m.kind === "furniture"){
+      const spec = SPECS[m.ref.type];
+      card.innerHTML = `<span class="dot" style="background:${spec.color}"></span><span class="meta"><span class="t">${spec.label}</span><br><span class="d">${Math.round(m.ref.w)}×${Math.round(m.ref.h)} cm</span></span><span class="badge ${m.ref.overlapping?"bad":"ok"}">${m.ref.overlapping?"overlap":"ok"}</span>`;
+    } else {
+      card.innerHTML = `<span class="dot" style="background:#334155"></span><span class="meta"><span class="t">Wall${m.ref.hasWindow?" (window)":""}</span><br><span class="d">${Math.round(wallLength(m.ref))} cm</span></span><span class="badge ${m.ref.overlapping?"bad":"ok"}">${m.ref.overlapping?"overlap":"ok"}</span>`;
+    }
     inspector.appendChild(card);
   }
 }
@@ -1262,6 +1379,10 @@ function renderWallInspector(){
   btnRow.appendChild(btnAddDoor); btnRow.appendChild(btnAddSliding);
   wrap.appendChild(btnRow);
 
+  const btnCopy = document.createElement("button"); btnCopy.className = "btn"; btnCopy.textContent = "⧉ Copy wall";
+  btnCopy.onclick = copySelection;
+  wrap.appendChild(btnCopy);
+
   const btnDel = document.createElement("button"); btnDel.className = "btn danger"; btnDel.textContent = "✕ Delete wall";
   btnDel.onclick = ()=>{
     pushHistory();
@@ -1290,34 +1411,47 @@ function fieldRow(labelText, value, min, max, onCommit){
 function updateHeaderButtons(){
   const copyBtn = document.getElementById("btnCopy");
   const pasteBtn = document.getElementById("btnPaste");
-  const hasFurnitureSelection = selection.type === "furniture" && selection.ids.length > 0;
-  copyBtn.disabled = !hasFurnitureSelection;
-  copyBtn.style.opacity = hasFurnitureSelection ? 1 : 0.45;
-  pasteBtn.disabled = !clipboard;
-  pasteBtn.style.opacity = clipboard ? 1 : 0.45;
+  const hasCopyableSelection = (selection.type === "furniture" || selection.type === "wall" || selection.type === "mixed") && selection.ids.length > 0;
+  copyBtn.disabled = !hasCopyableSelection;
+  copyBtn.style.opacity = hasCopyableSelection ? 1 : 0.45;
+  const hasClipboard = !!clipboard && ((clipboard.furniture&&clipboard.furniture.length) || (clipboard.walls&&clipboard.walls.length));
+  pasteBtn.disabled = !hasClipboard;
+  pasteBtn.style.opacity = hasClipboard ? 1 : 0.45;
 }
 
 function copySelection(){
-  if (selection.type !== "furniture" || !selection.ids.length) return;
-  const items = state.furniture.filter(f=>selection.ids.includes(f.id)).map(f=>Object.assign({}, f));
-  if (!items.length) return;
-  clipboard = { items };
+  if (!selection.type || !selection.ids.length) return;
+  const members = selMembers();
+  if (!members.length) return;
+  const furniture = members.filter(m=>m.kind==="furniture").map(m=>Object.assign({}, m.ref));
+  const walls = members.filter(m=>m.kind==="wall").map(m=>Object.assign({}, m.ref, { doors:(m.ref.doors||[]).map(d=>Object.assign({},d)) }));
+  if (!furniture.length && !walls.length) return;
+  clipboard = { furniture, walls };
   updateHeaderButtons();
-  showHint(items.length>1 ? `Copied ${items.length} items.` : "Copied.");
+  const n = furniture.length + walls.length;
+  showHint(n>1 ? `Copied ${n} items.` : "Copied.");
   setTimeout(hideHint, 1200);
 }
 function pasteClipboard(){
-  if (!clipboard || !clipboard.items.length) return;
+  if (!clipboard || (!clipboard.furniture.length && !clipboard.walls.length)) return;
   pushHistory();
   const offset = 20;
-  const newIds = [];
-  for (const item of clipboard.items){
+  const newComposites = [];
+  for (const item of clipboard.furniture){
     const nf = Object.assign({}, item, { id: uid(), cx: item.cx+offset, cy: item.cy+offset, overlapping:false });
     state.furniture.push(nf);
-    newIds.push(nf.id);
+    newComposites.push(makeComposite("furniture", nf.id));
   }
-  selection = { type:"furniture", ids:newIds };
-  recomputeCollisions(); renderAll(); saveLocal();
+  for (const item of clipboard.walls){
+    const nw = Object.assign({}, item, {
+      id: uid(), x1: item.x1+offset, y1: item.y1+offset, x2: item.x2+offset, y2: item.y2+offset,
+      overlapping:false, doors:(item.doors||[]).map(d=>Object.assign({}, d, { id: uid() }))
+    });
+    state.walls.push(nw);
+    newComposites.push(makeComposite("wall", nw.id));
+  }
+  finalizeSelection(newComposites);
+  recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
 }
 
 /* ============================== PALETTE ============================== */
@@ -1769,19 +1903,15 @@ function onPointerDown(e){
   }
   if (furnGroup){
     const id = furnGroup.dataset.id;
-    if (e.shiftKey && selection.type === "furniture"){
-      const ids = selection.ids.includes(id) ? selection.ids.filter(x=>x!==id) : selection.ids.concat([id]);
-      selection = { type: ids.length ? "furniture" : null, ids };
-    } else if (!(selection.type === "furniture" && selection.ids.includes(id) && selection.ids.length > 1)){
+    if (e.shiftKey){
+      const composites = mergeableComposites();
+      const cid = makeComposite("furniture", id);
+      finalizeSelection(composites.includes(cid) ? composites.filter(x=>x!==cid) : composites.concat([cid]));
+    } else if (!isGroupMember("furniture", id)){
       selection = { type:"furniture", ids:[id] };
     }
     pushHistory();
-    const startPositions = {};
-    for (const sid of selection.ids){
-      const sf = state.furniture.find(x=>x.id===sid);
-      if (sf) startPositions[sid] = { cx: sf.cx, cy: sf.cy };
-    }
-    drag = { type:"move-furniture-group", ids: selection.ids.slice(), startPositions, startWorld: pos };
+    startGroupDrag(pos);
     renderHandles(); renderInspector();
     e.preventDefault();
     return;
@@ -1797,19 +1927,15 @@ function onPointerDown(e){
   }
   if (wallGroup){
     const id = wallGroup.dataset.id;
-    if (e.shiftKey && selection.type === "wall"){
-      const ids = selection.ids.includes(id) ? selection.ids.filter(x=>x!==id) : selection.ids.concat([id]);
-      selection = { type: ids.length ? "wall" : null, ids };
-    } else if (!(selection.type === "wall" && selection.ids.includes(id) && selection.ids.length > 1)){
+    if (e.shiftKey){
+      const composites = mergeableComposites();
+      const cid = makeComposite("wall", id);
+      finalizeSelection(composites.includes(cid) ? composites.filter(x=>x!==cid) : composites.concat([cid]));
+    } else if (!isGroupMember("wall", id)){
       selection = { type:"wall", ids:[id] };
     }
     pushHistory();
-    const startPositions = {};
-    for (const sid of selection.ids){
-      const sw = state.walls.find(x=>x.id===sid);
-      if (sw) startPositions[sid] = { x1:sw.x1, y1:sw.y1, x2:sw.x2, y2:sw.y2 };
-    }
-    drag = { type:"move-wall-group", ids: selection.ids.slice(), startPositions, startWorld: pos };
+    startGroupDrag(pos);
     renderHandles(); renderInspector();
     e.preventDefault();
     return;
@@ -1895,6 +2021,26 @@ function onPointerMove(e){
       recomputeCollisions(); recomputeAreas(); renderObstacleLayers(); renderAreas(); renderHandles();
       break;
     }
+    case "move-mixed-group": {
+      const dx = pos.x - drag.startWorld.x, dy = pos.y - drag.startWorld.y;
+      for (const cid of drag.ids){
+        const [kind,id] = splitComposite(cid);
+        const sp = drag.starts[cid];
+        if (!sp) continue;
+        if (kind === "furniture"){
+          const f = state.furniture.find(x=>x.id===id);
+          if (f){ f.cx = snapVal(sp.cx+dx); f.cy = snapVal(sp.cy+dy); }
+        } else if (kind === "wall"){
+          const w = state.walls.find(x=>x.id===id);
+          if (w){
+            w.x1 = snapVal(sp.x1+dx); w.y1 = snapVal(sp.y1+dy);
+            w.x2 = snapVal(sp.x2+dx); w.y2 = snapVal(sp.y2+dy);
+          }
+        }
+      }
+      recomputeCollisions(); recomputeAreas(); renderObstacleLayers(); renderAreas(); renderHandles();
+      break;
+    }
     case "wall-endpoint": {
       const w = state.walls.find(x=>x.id===drag.id);
       if (!w) return;
@@ -1938,24 +2084,19 @@ function onPointerUp(e){
       const rx0 = Math.min(drag.start.x,pos.x), rx1 = Math.max(drag.start.x,pos.x);
       const ry0 = Math.min(drag.start.y,pos.y), ry1 = Math.max(drag.start.y,pos.y);
       const idsInBox = state.furniture.filter(f=> f.cx>=rx0 && f.cx<=rx1 && f.cy>=ry0 && f.cy<=ry1).map(f=>f.id);
-      if (idsInBox.length){
-        if (e.shiftKey && selection.type === "furniture"){
-          selection = { type:"furniture", ids: Array.from(new Set(selection.ids.concat(idsInBox))) };
-        } else {
-          selection = { type:"furniture", ids: idsInBox };
-        }
-      } else {
-        const wallIdsInBox = state.walls.filter(w=>{
-          const mx = (w.x1+w.x2)/2, my = (w.y1+w.y2)/2;
-          return mx>=rx0 && mx<=rx1 && my>=ry0 && my<=ry1;
-        }).map(w=>w.id);
-        if (wallIdsInBox.length){
-          if (e.shiftKey && selection.type === "wall"){
-            selection = { type:"wall", ids: Array.from(new Set(selection.ids.concat(wallIdsInBox))) };
-          } else {
-            selection = { type:"wall", ids: wallIdsInBox };
-          }
-        }
+      const wallIdsInBox = state.walls.filter(w=>{
+        const mx = (w.x1+w.x2)/2, my = (w.y1+w.y2)/2;
+        return mx>=rx0 && mx<=rx1 && my>=ry0 && my<=ry1;
+      }).map(w=>w.id);
+      const newComposites = [
+        ...idsInBox.map(id=>makeComposite("furniture", id)),
+        ...wallIdsInBox.map(id=>makeComposite("wall", id)),
+      ];
+      if (newComposites.length){
+        const finalComposites = e.shiftKey
+          ? Array.from(new Set(mergeableComposites().concat(newComposites)))
+          : newComposites;
+        finalizeSelection(finalComposites);
       }
     }
     clearNode(overlayLayer);
@@ -1988,6 +2129,12 @@ function onKeyDown(e){
     if (selection.type === "furniture") state.furniture = state.furniture.filter(x=>!selection.ids.includes(x.id));
     if (selection.type === "wall") state.walls = state.walls.filter(x=>!selection.ids.includes(x.id));
     if (selection.type === "pillar") state.pillars = state.pillars.filter(x=>x.id!==selection.ids[0]);
+    if (selection.type === "mixed"){
+      const delFurn = new Set(), delWall = new Set();
+      for (const m of selMembers()){ (m.kind==="furniture" ? delFurn : delWall).add(m.id); }
+      state.furniture = state.furniture.filter(x=>!delFurn.has(x.id));
+      state.walls = state.walls.filter(x=>!delWall.has(x.id));
+    }
     clearSelection(); recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
   }
   if (e.ctrlKey && e.key.toLowerCase() === "z" && !e.shiftKey){ e.preventDefault(); undo(); }
