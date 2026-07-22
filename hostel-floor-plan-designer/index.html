@@ -743,8 +743,9 @@ function renderWalls(){
       dg.appendChild(el("line", { x1:r.lo, y1:-w.thickness/2, x2:r.lo, y2:w.thickness/2, stroke:"#334155", "stroke-width":1.2 }));
       dg.appendChild(el("line", { x1:r.hi, y1:-w.thickness/2, x2:r.hi, y2:w.thickness/2, stroke:"#334155", "stroke-width":1.2 }));
       if (r.door.type === "sliding"){
+        const sign = r.door.swing === "in" ? -1 : 1;
         const panelThickness = Math.max(3, w.thickness*0.35);
-        const py = w.thickness/2 + 2;
+        const py = sign>0 ? w.thickness/2 + 2 : -w.thickness/2 - 2 - panelThickness;
         dg.appendChild(el("rect", { x:r.lo, y:py, width:doorW, height:panelThickness, rx:1, fill:"#334155", opacity:0.85 }));
         const midY = py + panelThickness/2;
         const ax1 = r.lo + doorW*0.28, ax2 = r.lo + doorW*0.72;
@@ -1356,12 +1357,12 @@ function renderWallInspector(){
           <span style="width:34px;">hinge</span>
           <button class="doorHingeBtn" data-hinge="left" style="${!isRightHinge?pillOn:pillOff}">Left</button>
           <button class="doorHingeBtn" data-hinge="right" style="${isRightHinge?pillOn:pillOff}">Right</button>
-        </div>
+        </div>` : ``}
         <div style="display:flex;align-items:center;gap:5px;">
-          <span style="width:34px;">swing</span>
+          <span style="width:34px;">${isSliding?"slides":"swing"}</span>
           <button class="doorSwingBtn" data-swing="in" style="${isSwingIn?pillOn:pillOff}">In</button>
           <button class="doorSwingBtn" data-swing="out" style="${!isSwingIn?pillOn:pillOff}">Out</button>
-        </div>` : ``}
+        </div>
         <div style="display:flex;align-items:center;gap:5px;">
           <span style="width:34px;">width</span>
           <input type="range" min="${DOOR_MIN}" max="${DOOR_MAX+10}" step="1" value="${d.width}" title="door width (min 80cm / 800mm)">
@@ -1406,7 +1407,7 @@ function renderWallInspector(){
   btnAddSliding.onclick = ()=>{
     pushHistory();
     w.doors = w.doors || [];
-    w.doors.push({ id: uid(), t:0.5, width: DOOR_DEFAULT, type:"sliding" });
+    w.doors.push({ id: uid(), t:0.5, width: DOOR_DEFAULT, type:"sliding", swing:"out" });
     renderAll(); saveLocal();
   };
   btnRow.appendChild(btnAddDoor); btnRow.appendChild(btnAddSliding);
@@ -1637,12 +1638,14 @@ document.getElementById("btnSaveJson").onclick = async ()=>{
       return;
     } catch (err){
       if (err && err.name === "AbortError") return; // user cancelled the save dialog
-      // fall through to the plain download if the picker fails for any other reason
+      // fall through to the filename-prompt download if the picker is unavailable or blocked (e.g. inside a sandboxed iframe)
     }
   }
+  const name = await askFilename("hostel-floor-plan.json");
+  if (!name) return;
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "hostel-floor-plan.json";
+  a.download = name;
   a.click();
 };
 const fileInputJson = document.getElementById("fileInputJson");
@@ -1749,6 +1752,37 @@ function askDistance(defaultVal){
     box.querySelector("#calibOk").onclick = ()=> close(parseFloat(input.value)||null);
     box.querySelector("#calibCancel").onclick = ()=> close(null);
     input.addEventListener("keydown", e=>{ if (e.key==="Enter") close(parseFloat(input.value)||null); if (e.key==="Escape") close(null); });
+  });
+}
+
+function askFilename(defaultName){
+  return new Promise(resolve=>{
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:100;";
+    const box = document.createElement("div");
+    box.style.cssText = "background:#fff;border-radius:10px;padding:18px 20px;width:300px;box-shadow:0 10px 40px rgba(0,0,0,0.25);font-family:inherit;";
+    box.innerHTML = `
+      <div style="font-weight:700;margin-bottom:8px;">Save project as</div>
+      <div style="font-size:12px;color:var(--ink-60);margin-bottom:10px;">Choose a file name. It will download as a .json file you can move anywhere, including your Desktop.</div>
+      <input type="text" id="saveAsInput" value="${defaultName}" style="width:100%;padding:7px 8px;border:1px solid var(--rule);border-radius:6px;font-size:14px;margin-bottom:12px;">
+      <div style="display:flex;gap:8px;">
+        <button id="saveAsCancel" style="flex:1;padding:7px;border-radius:6px;border:1px solid var(--rule);background:#f7f8fa;">Cancel</button>
+        <button id="saveAsOk" style="flex:1;padding:7px;border-radius:6px;border:none;background:var(--accent);color:#fff;font-weight:600;">Save</button>
+      </div>
+    `;
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    const input = box.querySelector("#saveAsInput");
+    input.focus(); input.select();
+    function close(val){ document.body.removeChild(overlay); resolve(val); }
+    function submit(){
+      let name = input.value.trim() || defaultName;
+      if (!/\.json$/i.test(name)) name += ".json";
+      close(name);
+    }
+    box.querySelector("#saveAsOk").onclick = submit;
+    box.querySelector("#saveAsCancel").onclick = ()=> close(null);
+    input.addEventListener("keydown", e=>{ if (e.key==="Enter") submit(); if (e.key==="Escape") close(null); });
   });
 }
 
