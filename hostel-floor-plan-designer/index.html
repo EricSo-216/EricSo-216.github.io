@@ -597,6 +597,19 @@ function snapWallPoint(from, to, freeAngle){
   const snappedDist = snapVal(dist);
   return { x: from.x + Math.cos(angle) * snappedDist, y: from.y + Math.sin(angle) * snappedDist };
 }
+function nearestWallEndpoint(point, excludeWallId){
+  const screenPxPerWorld = (svg.clientWidth || 800) / state.viewBox.w;
+  const threshold = 14 / screenPxPerWorld;
+  let best = null, bestDist = threshold;
+  for (const w of state.walls){
+    if (w.id === excludeWallId) continue;
+    for (const p of [{x:w.x1,y:w.y1}, {x:w.x2,y:w.y2}]){
+      const d = Math.hypot(p.x-point.x, p.y-point.y);
+      if (d < bestDist){ bestDist = d; best = { x:p.x, y:p.y }; }
+    }
+  }
+  return best;
+}
 
 function zoomBy(factor, center){
   const v = state.viewBox;
@@ -1571,9 +1584,11 @@ function onPointerDown(e){
 
   if (mode === "wall"){
     if (!wallDraft){
-      wallDraft = { x: snapVal(pos.x), y: snapVal(pos.y) };
+      const near = nearestWallEndpoint(pos, null);
+      wallDraft = near || { x: snapVal(pos.x), y: snapVal(pos.y) };
     } else {
-      const p = snapWallPoint(wallDraft, pos, e.shiftKey);
+      const near = nearestWallEndpoint(pos, null);
+      const p = near || snapWallPoint(wallDraft, pos, e.shiftKey);
       pushHistory();
       const thickness = parseFloat(document.getElementById("wallThickness").value) || 15;
       const w = { id: uid(), x1: wallDraft.x, y1: wallDraft.y, x2: p.x, y2: p.y, thickness, hasWindow:false, doors:[], overlapping:false };
@@ -1677,7 +1692,9 @@ function onPointerDown(e){
 
 function onPointerMove(e){
   if (mode === "wall" && wallDraft){
-    renderWallPreview(snapWallPoint(wallDraft, screenToWorld(e), e.shiftKey));
+    const movePos = screenToWorld(e);
+    const nearJoin = nearestWallEndpoint(movePos, null);
+    renderWallPreview(nearJoin || snapWallPoint(wallDraft, movePos, e.shiftKey), !!nearJoin);
   }
   if (!drag) return;
   const pos = screenToWorld(e);
@@ -1725,8 +1742,10 @@ function onPointerMove(e){
     case "wall-endpoint": {
       const w = state.walls.find(x=>x.id===drag.id);
       if (!w) return;
-      if (drag.end === "1"){ w.x1 = snapVal(pos.x); w.y1 = snapVal(pos.y); }
-      else { w.x2 = snapVal(pos.x); w.y2 = snapVal(pos.y); }
+      const joined = nearestWallEndpoint(pos, w.id);
+      const ep = joined || { x: snapVal(pos.x), y: snapVal(pos.y) };
+      if (drag.end === "1"){ w.x1 = ep.x; w.y1 = ep.y; }
+      else { w.x2 = ep.x; w.y2 = ep.y; }
       recomputeCollisions(); recomputeAreas(); renderObstacleLayers(); renderAreas(); renderHandles();
       break;
     }
@@ -1820,12 +1839,15 @@ function drawCalibMarkers(){
     overlayLayer.appendChild(el("line", { x1:calibPoints[0].x, y1:calibPoints[0].y, x2:calibPoints[1].x, y2:calibPoints[1].y, stroke:"#f59e0b", "stroke-width":2, "stroke-dasharray":"6 4" }));
   }
 }
-function renderWallPreview(pos){
+function renderWallPreview(pos, joining){
   clearNode(overlayLayer);
   if (!wallDraft) return;
   overlayLayer.appendChild(el("circle", { cx:wallDraft.x, cy:wallDraft.y, r:4, fill:"#2563eb", class:"wall-preview-dot" }));
   if (pos){
     overlayLayer.appendChild(el("line", { x1:wallDraft.x, y1:wallDraft.y, x2:pos.x, y2:pos.y, stroke:"#2563eb", "stroke-width":1.5, "stroke-dasharray":"5 3", class:"wall-preview-line" }));
+    if (joining){
+      overlayLayer.appendChild(el("circle", { cx:pos.x, cy:pos.y, r:9, fill:"none", stroke:"#16a34a", "stroke-width":2.5 }));
+    }
   }
 }
 function renderMarquee(p0, p1){
