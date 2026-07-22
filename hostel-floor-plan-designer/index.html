@@ -1620,9 +1620,26 @@ document.getElementById("btnNew").onclick = ()=>{
   applyViewBox(); updateCalibStatus(); renderAll(); saveLocal();
 };
 
-document.getElementById("btnSaveJson").onclick = ()=>{
+document.getElementById("btnSaveJson").onclick = async ()=>{
   const data = JSON.stringify(state, null, 2);
   const blob = new Blob([data], { type:"application/json" });
+  if (window.showSaveFilePicker){
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: "hostel-floor-plan.json",
+        types: [{ description:"Floor plan project", accept:{ "application/json":[".json"] } }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      showHint("Project saved.");
+      setTimeout(hideHint, 1500);
+      return;
+    } catch (err){
+      if (err && err.name === "AbortError") return; // user cancelled the save dialog
+      // fall through to the plain download if the picker fails for any other reason
+    }
+  }
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "hostel-floor-plan.json";
