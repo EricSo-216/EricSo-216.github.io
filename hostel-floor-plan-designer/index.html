@@ -1016,6 +1016,14 @@ function decorateFurniture(g, type, w, h){
   }
 }
 
+function bedNumber(f){
+  const beds = state.furniture.filter(x=>x.type==="bed");
+  return beds.indexOf(f) + 1;
+}
+function furnitureDisplayLabel(f, spec){
+  if (f.type === "bed") return f.label || ("Bed " + bedNumber(f));
+  return spec.label;
+}
 function renderFurniture(){
   clearNode(furnitureLayer);
   for (const f of state.furniture){
@@ -1029,7 +1037,7 @@ function renderFurniture(){
     decorateFurniture(g, f.type, f.w, f.h);
     const fs = Math.max(7, Math.min(13, Math.min(f.w,f.h)*0.14));
     const label = el("text", { x:0, y:-2, "text-anchor":"middle", "font-size":fs, "font-weight":700, fill:"#0f172a", "pointer-events":"none" });
-    label.textContent = spec.label;
+    label.textContent = furnitureDisplayLabel(f, spec);
     const dims = el("text", { x:0, y:fs+2, "text-anchor":"middle", "font-size":fs*0.82, fill:"#0f172a", "pointer-events":"none", opacity:0.75 });
     dims.textContent = Math.round(f.w)+"×"+Math.round(f.h)+" cm";
     g.appendChild(label); g.appendChild(dims);
@@ -1311,7 +1319,7 @@ function renderInspector(){
     let name, dims, color, ok = true;
     if (item.kind === "furniture"){
       const f = item.ref, spec = SPECS[f.type];
-      name = spec.label; dims = Math.round(f.w)+"×"+Math.round(f.h)+" cm";
+      name = furnitureDisplayLabel(f, spec); dims = Math.round(f.w)+"×"+Math.round(f.h)+" cm";
       color = spec.color; ok = meetsMin(f.type, f.w, f.h);
     } else if (item.kind === "pillar"){
       name = "Pillar"; dims = Math.round(item.ref.w)+"×"+Math.round(item.ref.h)+" cm"; color = PILLAR_SPEC.color;
@@ -1342,6 +1350,16 @@ function renderFurnitureInspector(){
     <div class="stat-row"><span>Meets min. size</span><span class="badge ${ok?"ok":"bad"}">${ok?"yes":"no"}</span></div>
     <div class="stat-row"><span>Status</span><span class="badge ${f.overlapping?"bad":"ok"}">${f.overlapping?"overlap":"ok"}</span></div>
   `;
+  if (f.type === "bed"){
+    const rowLabel = document.createElement("div"); rowLabel.className = "field-row";
+    const labelEl = document.createElement("label"); labelEl.textContent = "Label";
+    const labelInput = document.createElement("input");
+    labelInput.type = "text"; labelInput.value = f.label || ""; labelInput.placeholder = "Bed " + bedNumber(f);
+    labelInput.style.width = "100px";
+    labelInput.addEventListener("change", ()=>{ pushHistory(); f.label = labelInput.value.trim() || null; renderAll(); saveLocal(); });
+    rowLabel.appendChild(labelEl); rowLabel.appendChild(labelInput);
+    wrap.appendChild(rowLabel);
+  }
   const rowW = fieldRow("Width (cm)", f.w, 20, 300, v=>{ pushHistory(); f.w=v; recomputeCollisions(); renderAll(); saveLocal(); });
   const rowH = fieldRow("Depth (cm)", f.h, 20, 300, v=>{ pushHistory(); f.h=v; recomputeCollisions(); renderAll(); saveLocal(); });
   const rowR = fieldRow("Rotation (°)", Math.round(f.rot), -359, 359, v=>{ pushHistory(); f.rot=((v%360)+360)%360; recomputeCollisions(); renderAll(); saveLocal(); });
@@ -1426,7 +1444,7 @@ function renderGroupInspector(){
   for (const f of items){
     const spec = SPECS[f.type];
     const card = document.createElement("div"); card.className = "item-card selected";
-    card.innerHTML = `<span class="dot" style="background:${spec.color}"></span><span class="meta"><span class="t">${spec.label}</span><br><span class="d">${Math.round(f.w)}×${Math.round(f.h)} cm</span></span><span class="badge ${f.overlapping?"bad":"ok"}">${f.overlapping?"overlap":"ok"}</span>`;
+    card.innerHTML = `<span class="dot" style="background:${spec.color}"></span><span class="meta"><span class="t">${furnitureDisplayLabel(f, spec)}</span><br><span class="d">${Math.round(f.w)}×${Math.round(f.h)} cm</span></span><span class="badge ${f.overlapping?"bad":"ok"}">${f.overlapping?"overlap":"ok"}</span>`;
     inspector.appendChild(card);
   }
 }
@@ -1494,7 +1512,7 @@ function renderMixedGroupInspector(){
     const card = document.createElement("div"); card.className = "item-card selected";
     if (m.kind === "furniture"){
       const spec = SPECS[m.ref.type];
-      card.innerHTML = `<span class="dot" style="background:${spec.color}"></span><span class="meta"><span class="t">${spec.label}</span><br><span class="d">${Math.round(m.ref.w)}×${Math.round(m.ref.h)} cm</span></span><span class="badge ${m.ref.overlapping?"bad":"ok"}">${m.ref.overlapping?"overlap":"ok"}</span>`;
+      card.innerHTML = `<span class="dot" style="background:${spec.color}"></span><span class="meta"><span class="t">${furnitureDisplayLabel(m.ref, spec)}</span><br><span class="d">${Math.round(m.ref.w)}×${Math.round(m.ref.h)} cm</span></span><span class="badge ${m.ref.overlapping?"bad":"ok"}">${m.ref.overlapping?"overlap":"ok"}</span>`;
     } else {
       card.innerHTML = `<span class="dot" style="background:#334155"></span><span class="meta"><span class="t">Wall${m.ref.hasWindow?" (window)":""}</span><br><span class="d">${Math.round(wallLength(m.ref))} cm</span></span><span class="badge ${m.ref.overlapping?"bad":"ok"}">${m.ref.overlapping?"overlap":"ok"}</span>`;
     }
