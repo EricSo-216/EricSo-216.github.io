@@ -240,6 +240,7 @@
       <button class="hdr-btn" id="btnSaveJson">💾 Save Project</button>
       <button class="hdr-btn" id="btnLoadJson">📂 Load Project</button>
       <button class="hdr-btn" id="btnExportPng">🖼 Export PNG</button>
+      <button class="hdr-btn" id="btnExportJpg">🖼 Export JPEG</button>
       <button class="hdr-btn" id="btnNew">🗑 New</button>
     </div>
     <input type="file" id="fileInputImg" accept="image/*">
@@ -1872,8 +1873,9 @@ fileInputJson.addEventListener("change", (e)=>{
   fileInputJson.value = "";
 });
 
-document.getElementById("btnExportPng").onclick = exportPNG;
-function exportPNG(){
+document.getElementById("btnExportPng").onclick = ()=> exportRaster("image/png", "png");
+document.getElementById("btnExportJpg").onclick = ()=> exportRaster("image/jpeg", "jpg", 0.92);
+function exportRaster(mime, ext, quality){
   const clone = svg.cloneNode(true);
   clone.querySelectorAll("#handleLayer, #overlayLayer, #gridLayer").forEach(n=>n.remove());
   let minX=0,minY=0,maxX=state.viewBox.w,maxY=state.viewBox.h;
@@ -1909,11 +1911,11 @@ function exportPNG(){
       if (!blob){ alert("Export failed — could not render the image."); return; }
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "hostel-floor-plan.png";
+      a.download = `hostel-floor-plan.${ext}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-    }, "image/png");
+    }, mime, quality);
   };
   img.onerror = ()=>{
     URL.revokeObjectURL(url);
