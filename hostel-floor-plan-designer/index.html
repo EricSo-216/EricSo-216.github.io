@@ -1828,7 +1828,11 @@ document.getElementById("btnNew").onclick = ()=>{
 document.getElementById("btnSaveJson").onclick = async ()=>{
   const data = JSON.stringify(state, null, 2);
   const blob = new Blob([data], { type:"application/json" });
-  if (window.showSaveFilePicker){
+  // Chrome refuses to show the native picker for pages opened directly from disk
+  // (file:// origin) — it rejects with AbortError immediately, before any dialog
+  // appears, which looks identical to the user cancelling. Skip straight to the
+  // download fallback in that case instead of silently doing nothing.
+  if (window.showSaveFilePicker && location.protocol !== "file:"){
     try {
       const handle = await window.showSaveFilePicker({
         suggestedName: "hostel-floor-plan.json",
@@ -1852,7 +1856,7 @@ document.getElementById("btnSaveJson").onclick = async ()=>{
   a.href = URL.createObjectURL(blob);
   a.download = name;
   a.click();
-  showHint("Downloaded to your browser's default download folder — this browser doesn't support picking Desktop directly, so move the file there if needed.");
+  showHint("Downloaded to your browser's default download folder — choosing Desktop directly isn't supported here, so move the file there if needed.");
   setTimeout(hideHint, 4000);
 };
 const fileInputJson = document.getElementById("fileInputJson");
