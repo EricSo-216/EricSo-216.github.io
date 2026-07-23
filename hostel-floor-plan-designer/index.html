@@ -130,6 +130,14 @@
   .tool-btn:hover { border-color: var(--accent); background: var(--accent-light); }
   .tool-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+  .preset-row { display: flex; gap: 6px; margin-bottom: 8px; }
+  .preset-btn {
+    flex: 1; padding: 7px 4px; border-radius: 7px; border: 1px solid var(--rule);
+    background: #f7f8fa; font-size: 12px; font-weight: 600; text-align: center;
+  }
+  .preset-btn:hover { border-color: var(--accent); background: var(--accent-light); }
+  .preset-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
   .field-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
   .field-row label { font-size: 11.5px; color: var(--ink-60); flex: 1; }
   .field-row input[type=number], .field-row select {
@@ -232,21 +240,18 @@
     <!-- LEFT SIDEBAR -->
     <div class="sidebar left">
       <div class="panel-title">Furniture &amp; Fixtures</div>
+      <button class="tool-btn" id="btnStdBedroom" title="Insert a 200 × 450 cm room outline">🛏 Standard Bedroom (200×450 cm)</button>
       <div id="palette"></div>
 
       <div class="panel-title">Structure</div>
       <button class="tool-btn" id="btnWallTool">🧱 Draw Wall (click canvas)</button>
-      <div class="field-row">
-        <label>Wall type</label>
-        <select id="wallTypePreset">
-          <option value="custom">Custom</option>
-          <option value="10">Lightweight Partition (100mm)</option>
-          <option value="17.5">Concrete Wall (175mm)</option>
-        </select>
+      <div class="preset-row">
+        <button class="preset-btn" id="wallPreset100" data-thickness="10" title="Lightweight Partition Wall">100mm</button>
+        <button class="preset-btn" id="wallPreset125" data-thickness="12.5" title="Concrete Wall">125mm</button>
       </div>
       <div class="field-row">
         <label>Wall thickness (cm)</label>
-        <input type="number" id="wallThickness" value="15" min="8" max="30" step="0.5">
+        <input type="number" id="wallThickness" value="12.5" min="8" max="30" step="0.5">
       </div>
       <button class="tool-btn" id="btnRoomOutline">⬛ Room Outline…</button>
       <button class="tool-btn" id="btnPillarTool">🔲 Add Pillar (click canvas)</button>
@@ -274,7 +279,7 @@
         <table>
           <tr><td>Room (single)</td><td>≥ 8 m²</td></tr>
           <tr><td>Room (twin)</td><td>≥ 14 m²</td></tr>
-          <tr><td>Bed</td><td>188 × 86 cm</td></tr>
+          <tr><td>Bed</td><td>203 × 81 cm</td></tr>
           <tr><td>Desk</td><td>90–120 × 60 cm</td></tr>
           <tr><td>Chair</td><td>≥ 40 × 40 cm</td></tr>
           <tr><td>Closet</td><td>≥ 60 × 60 cm</td></tr>
@@ -333,10 +338,10 @@
 
 /* ============================== SPECS ============================== */
 const SPECS = {
-  bed:    { label:"Bed",          w:86,  h:188, minW:86, minH:188, color:"#8ecae6" },
-  desk:   { label:"Desk",         w:105, h:60,  minW:90, minH:60,  color:"#ffb703" },
+  bed:    { label:"Bed",          w:81,  h:203, minW:81, minH:203, color:"#8ecae6" },
+  desk:   { label:"Desk",         w:120, h:60,  minW:90, minH:60,  color:"#ffb703" },
   chair:  { label:"Chair",        w:45,  h:45,  minW:40, minH:40,  color:"#c8b6ff" },
-  closet: { label:"Closet",       w:100, h:60,  minW:60, minH:60,  color:"#fb8500" },
+  closet: { label:"Closet",       w:60,  h:60,  minW:60, minH:60,  color:"#fb8500" },
   toilet: { label:"Toilet Cubicle", w:80, h:150, minW:70, minH:120, color:"#adb5bd" },
   ensuite:{ label:"En-suite (WC+Basin+Shower)", w:150, h:200, minW:90, minH:180, color:"#7fb3a8" },
   shower: { label:"Shower",       w:90,  h:90,  minW:90, minH:90,  color:"#90e0ef" },
@@ -931,54 +936,15 @@ function renderRectHandles(obj, kind){
   handleLayer.appendChild(g);
 }
 
-function furnitureGroupBBox(items){
-  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-  for (const f of items){
-    for (const c of rectCorners(f.cx,f.cy,f.w,f.h,f.rot)){
-      minX=Math.min(minX,c.x); minY=Math.min(minY,c.y); maxX=Math.max(maxX,c.x); maxY=Math.max(maxY,c.y);
-    }
-  }
-  return { minX, minY, maxX, maxY, cx:(minX+maxX)/2, cy:(minY+maxY)/2 };
+/* Generic multi-kind (furniture + wall) group helpers, used for group rotate and flip
+   regardless of whether the current selection is furniture-only, wall-only, or mixed. */
+function groupMembersFromSelection(){
+  if (selection.type === "furniture") return state.furniture.filter(f=>selection.ids.includes(f.id)).map(ref=>({kind:"furniture",ref}));
+  if (selection.type === "wall") return state.walls.filter(w=>selection.ids.includes(w.id)).map(ref=>({kind:"wall",ref}));
+  if (selection.type === "mixed") return selMembers().map(m=>({kind:m.kind, ref:m.ref}));
+  return [];
 }
-
-function renderGroupHandles(){
-  const items = state.furniture.filter(f=>selection.ids.includes(f.id));
-  if (!items.length) return;
-  const bbox = furnitureGroupBBox(items);
-  const pad = 8;
-  handleLayer.appendChild(el("rect", { x:bbox.minX-pad, y:bbox.minY-pad, width:(bbox.maxX-bbox.minX)+pad*2, height:(bbox.maxY-bbox.minY)+pad*2, fill:"none", stroke:"#2563eb", "stroke-width":1.4, "stroke-dasharray":"6 3", "pointer-events":"none" }));
-  for (const f of items){
-    handleLayer.appendChild(el("g", { transform:`translate(${f.cx},${f.cy}) rotate(${f.rot})` },
-      el("rect", { x:-f.w/2-1, y:-f.h/2-1, width:f.w+2, height:f.h+2, fill:"none", stroke:"#2563eb", "stroke-width":1, opacity:0.6, "pointer-events":"none" })
-    ));
-  }
-  if (items.length > 1){
-    const handleY = bbox.minY - pad - 22;
-    handleLayer.appendChild(el("line", { x1:bbox.cx, y1:bbox.minY-pad, x2:bbox.cx, y2:handleY, stroke:"#2563eb", "stroke-width":1.2, "pointer-events":"none" }));
-    handleLayer.appendChild(el("circle", { cx:bbox.cx, cy:handleY, r:6, fill:"#2563eb", class:"handle group-rotate-handle", cursor:"grab" }));
-  }
-}
-
-function renderWallGroupHandles(){
-  const items = state.walls.filter(w=>selection.ids.includes(w.id));
-  if (!items.length) return;
-  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-  for (const w of items){
-    const rp = wallRectParams(w);
-    for (const c of rectCorners(rp.cx, rp.cy, rp.w, rp.h, rp.rot)){
-      minX=Math.min(minX,c.x); minY=Math.min(minY,c.y); maxX=Math.max(maxX,c.x); maxY=Math.max(maxY,c.y);
-    }
-  }
-  const pad = 8;
-  handleLayer.appendChild(el("rect", { x:minX-pad, y:minY-pad, width:(maxX-minX)+pad*2, height:(maxY-minY)+pad*2, fill:"none", stroke:"#2563eb", "stroke-width":1.4, "stroke-dasharray":"6 3", "pointer-events":"none" }));
-  for (const w of items){
-    handleLayer.appendChild(el("line", { x1:w.x1, y1:w.y1, x2:w.x2, y2:w.y2, stroke:"#2563eb", "stroke-width":Math.max(w.thickness+2,4), opacity:0.35, "pointer-events":"none" }));
-  }
-}
-
-function renderMixedGroupHandles(){
-  const members = selMembers();
-  if (!members.length) return;
+function groupBBoxGeneric(members){
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
   for (const m of members){
     const rp = m.kind==="furniture" ? { cx:m.ref.cx, cy:m.ref.cy, w:m.ref.w, h:m.ref.h, rot:m.ref.rot } : wallRectParams(m.ref);
@@ -986,18 +952,73 @@ function renderMixedGroupHandles(){
       minX=Math.min(minX,c.x); minY=Math.min(minY,c.y); maxX=Math.max(maxX,c.x); maxY=Math.max(maxY,c.y);
     }
   }
+  return { minX, minY, maxX, maxY, cx:(minX+maxX)/2, cy:(minY+maxY)/2 };
+}
+function memberKey(m){ return m.kind+":"+m.ref.id; }
+function applyGroupRotation(members, starts, pivot, deltaDeg){
+  const rad = deltaDeg*Math.PI/180, cos = Math.cos(rad), sin = Math.sin(rad);
+  const rotPt = (x,y)=>{ const ox=x-pivot.x, oy=y-pivot.y; return { x: pivot.x+(ox*cos-oy*sin), y: pivot.y+(ox*sin+oy*cos) }; };
+  for (const m of members){
+    const s = starts[memberKey(m)];
+    if (!s) continue;
+    if (m.kind === "furniture"){
+      const p = rotPt(s.cx, s.cy);
+      m.ref.cx = p.x; m.ref.cy = p.y;
+      m.ref.rot = ((s.rot + deltaDeg) % 360 + 360) % 360;
+    } else {
+      const p1 = rotPt(s.x1, s.y1), p2 = rotPt(s.x2, s.y2);
+      m.ref.x1 = p1.x; m.ref.y1 = p1.y; m.ref.x2 = p2.x; m.ref.y2 = p2.y;
+    }
+  }
+}
+function flipGroupHorizontal(members, pivotX){
+  for (const m of members){
+    if (m.kind === "furniture"){
+      m.ref.cx = 2*pivotX - m.ref.cx;
+      m.ref.rot = ((-m.ref.rot) % 360 + 360) % 360;
+    } else {
+      m.ref.x1 = 2*pivotX - m.ref.x1;
+      m.ref.x2 = 2*pivotX - m.ref.x2;
+    }
+  }
+}
+function flipGroupVertical(members, pivotY){
+  for (const m of members){
+    if (m.kind === "furniture"){
+      m.ref.cy = 2*pivotY - m.ref.cy;
+      m.ref.rot = ((180 - m.ref.rot) % 360 + 360) % 360;
+    } else {
+      m.ref.y1 = 2*pivotY - m.ref.y1;
+      m.ref.y2 = 2*pivotY - m.ref.y2;
+    }
+  }
+}
+function renderGroupOutline(members, bbox){
   const pad = 8;
-  handleLayer.appendChild(el("rect", { x:minX-pad, y:minY-pad, width:(maxX-minX)+pad*2, height:(maxY-minY)+pad*2, fill:"none", stroke:"#2563eb", "stroke-width":1.4, "stroke-dasharray":"6 3", "pointer-events":"none" }));
+  handleLayer.appendChild(el("rect", { x:bbox.minX-pad, y:bbox.minY-pad, width:(bbox.maxX-bbox.minX)+pad*2, height:(bbox.maxY-bbox.minY)+pad*2, fill:"none", stroke:"#2563eb", "stroke-width":1.4, "stroke-dasharray":"6 3", "pointer-events":"none" }));
   for (const m of members){
     if (m.kind === "furniture"){
       handleLayer.appendChild(el("g", { transform:`translate(${m.ref.cx},${m.ref.cy}) rotate(${m.ref.rot})` },
         el("rect", { x:-m.ref.w/2-1, y:-m.ref.h/2-1, width:m.ref.w+2, height:m.ref.h+2, fill:"none", stroke:"#2563eb", "stroke-width":1, opacity:0.6, "pointer-events":"none" })
       ));
-    } else if (m.kind === "wall"){
+    } else {
       handleLayer.appendChild(el("line", { x1:m.ref.x1, y1:m.ref.y1, x2:m.ref.x2, y2:m.ref.y2, stroke:"#2563eb", "stroke-width":Math.max(m.ref.thickness+2,4), opacity:0.35, "pointer-events":"none" }));
     }
   }
+  if (members.length > 1){
+    const handleY = bbox.minY - pad - 22;
+    handleLayer.appendChild(el("line", { x1:bbox.cx, y1:bbox.minY-pad, x2:bbox.cx, y2:handleY, stroke:"#2563eb", "stroke-width":1.2, "pointer-events":"none" }));
+    handleLayer.appendChild(el("circle", { cx:bbox.cx, cy:handleY, r:6, fill:"#2563eb", class:"handle group-rotate-handle", cursor:"grab" }));
+  }
 }
+
+function renderGroupHandles(){
+  const members = groupMembersFromSelection();
+  if (!members.length) return;
+  renderGroupOutline(members, groupBBoxGeneric(members));
+}
+function renderWallGroupHandles(){ renderGroupHandles(); }
+function renderMixedGroupHandles(){ renderGroupHandles(); }
 
 function renderHandles(){
   clearNode(handleLayer);
@@ -1217,6 +1238,28 @@ function renderFurnitureInspector(){
   inspector.appendChild(wrap);
 }
 
+function addFlipButtons(wrap){
+  const btnFlipH = document.createElement("button"); btnFlipH.className = "btn"; btnFlipH.textContent = "⬌ Flip horizontal";
+  btnFlipH.onclick = ()=>{
+    const members = groupMembersFromSelection();
+    if (!members.length) return;
+    pushHistory();
+    const bbox = groupBBoxGeneric(members);
+    flipGroupHorizontal(members, bbox.cx);
+    recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
+  };
+  const btnFlipV = document.createElement("button"); btnFlipV.className = "btn"; btnFlipV.textContent = "⬍ Flip vertical";
+  btnFlipV.onclick = ()=>{
+    const members = groupMembersFromSelection();
+    if (!members.length) return;
+    pushHistory();
+    const bbox = groupBBoxGeneric(members);
+    flipGroupVertical(members, bbox.cy);
+    recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
+  };
+  wrap.appendChild(btnFlipH); wrap.appendChild(btnFlipV);
+}
+
 function renderGroupInspector(){
   const items = state.furniture.filter(f=>selection.ids.includes(f.id));
   const wrap = document.createElement("div");
@@ -1240,7 +1283,9 @@ function renderGroupInspector(){
     state.furniture = state.furniture.filter(f=>!ids.includes(f.id));
     clearSelection(); recomputeCollisions(); renderAll(); saveLocal();
   };
-  wrap.appendChild(btnCopy); wrap.appendChild(btnReset); wrap.appendChild(btnDel);
+  wrap.appendChild(btnCopy);
+  addFlipButtons(wrap);
+  wrap.appendChild(btnReset); wrap.appendChild(btnDel);
   inspector.appendChild(wrap);
 
   const hr = document.createElement("hr"); hr.className = "sep"; inspector.appendChild(hr);
@@ -1270,7 +1315,9 @@ function renderWallGroupInspector(){
     state.walls = state.walls.filter(w=>!ids.includes(w.id));
     clearSelection(); recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
   };
-  wrap.appendChild(btnCopy); wrap.appendChild(btnDel);
+  wrap.appendChild(btnCopy);
+  addFlipButtons(wrap);
+  wrap.appendChild(btnDel);
   inspector.appendChild(wrap);
 
   const hr = document.createElement("hr"); hr.className = "sep"; inspector.appendChild(hr);
@@ -1303,7 +1350,9 @@ function renderMixedGroupInspector(){
     state.walls = state.walls.filter(x=>!delWall.has(x.id));
     clearSelection(); recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
   };
-  wrap.appendChild(btnCopy); wrap.appendChild(btnDel);
+  wrap.appendChild(btnCopy);
+  addFlipButtons(wrap);
+  wrap.appendChild(btnDel);
   inspector.appendChild(wrap);
 
   const hr = document.createElement("hr"); hr.className = "sep"; inspector.appendChild(hr);
@@ -1361,18 +1410,14 @@ function renderWallInspector(){
     <div class="stat-row"><span>Length</span><b>${Math.round(wallLength(w))} cm</b></div>
     <div class="stat-row"><span>Status</span><span class="badge ${w.overlapping?"bad":"ok"}">${w.overlapping?"overlap":"ok"}</span></div>
   `;
-  const presetRow = document.createElement("div"); presetRow.className = "field-row";
-  const matchPreset = Math.abs(w.thickness-10)<0.01 ? "10" : Math.abs(w.thickness-17.5)<0.01 ? "17.5" : "custom";
-  presetRow.innerHTML = `<label>Wall type</label>
-    <select>
-      <option value="custom" ${matchPreset==="custom"?"selected":""}>Custom</option>
-      <option value="10" ${matchPreset==="10"?"selected":""}>Lightweight Partition (100mm)</option>
-      <option value="17.5" ${matchPreset==="17.5"?"selected":""}>Concrete Wall (175mm)</option>
-    </select>`;
-  presetRow.querySelector("select").onchange = (e)=>{
-    if (e.target.value === "custom") return;
-    pushHistory(); w.thickness = parseFloat(e.target.value); recomputeCollisions(); renderAll(); saveLocal();
-  };
+  const presetRow = document.createElement("div"); presetRow.className = "preset-row";
+  presetRow.innerHTML = `
+    <button class="preset-btn ${Math.abs(w.thickness-10)<0.01?"active":""}" data-thickness="10" title="Lightweight Partition Wall">100mm</button>
+    <button class="preset-btn ${Math.abs(w.thickness-12.5)<0.01?"active":""}" data-thickness="12.5" title="Concrete Wall">125mm</button>
+  `;
+  presetRow.querySelectorAll(".preset-btn").forEach(btn=>{
+    btn.onclick = ()=>{ pushHistory(); w.thickness = parseFloat(btn.dataset.thickness); recomputeCollisions(); renderAll(); saveLocal(); };
+  });
   wrap.appendChild(presetRow);
   const rowT = fieldRow("Thickness (cm)", w.thickness, 8, 30, v=>{ pushHistory(); w.thickness=v; recomputeCollisions(); renderAll(); saveLocal(); });
   wrap.appendChild(rowT);
@@ -1651,17 +1696,18 @@ document.getElementById("btnPillarTool").onclick = ()=>{
 document.getElementById("chkGrid").onchange = e=>{ state.showGrid = e.target.checked; renderGrid(); };
 document.getElementById("chkSnap").onchange = e=>{ state.snap = e.target.checked; };
 
-const wallTypePreset = document.getElementById("wallTypePreset");
+const wallPresetBtns = [document.getElementById("wallPreset100"), document.getElementById("wallPreset125")];
 const wallThicknessInput = document.getElementById("wallThickness");
 function syncWallPresetFromThickness(){
-  const v = String(parseFloat(wallThicknessInput.value));
-  const match = [...wallTypePreset.options].find(o => o.value !== "custom" && parseFloat(o.value) === parseFloat(v));
-  wallTypePreset.value = match ? match.value : "custom";
+  const v = parseFloat(wallThicknessInput.value);
+  wallPresetBtns.forEach(btn => btn.classList.toggle("active", Math.abs(parseFloat(btn.dataset.thickness)-v) < 0.01));
 }
-wallTypePreset.onchange = ()=>{
-  if (wallTypePreset.value === "custom") return;
-  wallThicknessInput.value = wallTypePreset.value;
-};
+wallPresetBtns.forEach(btn=>{
+  btn.onclick = ()=>{
+    wallThicknessInput.value = btn.dataset.thickness;
+    syncWallPresetFromThickness();
+  };
+});
 wallThicknessInput.addEventListener("input", syncWallPresetFromThickness);
 syncWallPresetFromThickness();
 
@@ -1857,7 +1903,7 @@ function askRoomOutline(){
     overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;z-index:100;";
     const box = document.createElement("div");
     box.style.cssText = "background:#fff;border-radius:10px;padding:18px 20px;width:300px;box-shadow:0 10px 40px rgba(0,0,0,0.25);font-family:inherit;";
-    const defaultThickness = parseFloat(document.getElementById("wallThickness").value) || 15;
+    const defaultThickness = parseFloat(document.getElementById("wallThickness").value) || 12.5;
     box.innerHTML = `
       <div style="font-weight:700;margin-bottom:8px;">Room outline</div>
       <div style="font-size:12px;color:var(--ink-60);margin-bottom:10px;">Generates straight walls around a rectangle. Check all 4 for a closed room, 3 for a U-shape, or two adjacent sides (e.g. Top + Left) for an L-shaped corner.</div>
@@ -1896,21 +1942,30 @@ function askRoomOutline(){
   });
 }
 
+function generateRoomOutline(width, depth, thickness, sides){
+  pushHistory();
+  const v = state.viewBox;
+  const cx = v.x+v.w/2, cy = v.y+v.h/2;
+  const x0 = snapVal(cx-width/2), x1 = snapVal(cx+width/2);
+  const y0 = snapVal(cy-depth/2), y1 = snapVal(cy+depth/2);
+  const mk = (ax,ay,bx,by) => ({ id:uid(), x1:ax, y1:ay, x2:bx, y2:by, thickness, hasWindow:false, doors:[], overlapping:false });
+  if (sides.top) state.walls.push(mk(x0,y0,x1,y0));
+  if (sides.right) state.walls.push(mk(x1,y0,x1,y1));
+  if (sides.bottom) state.walls.push(mk(x1,y1,x0,y1));
+  if (sides.left) state.walls.push(mk(x0,y1,x0,y0));
+  recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
+}
+
 document.getElementById("btnRoomOutline").onclick = async ()=>{
   const res = await askRoomOutline();
   if (!res) return;
   if (!res.sides.top && !res.sides.right && !res.sides.bottom && !res.sides.left) return;
-  pushHistory();
-  const v = state.viewBox;
-  const cx = v.x+v.w/2, cy = v.y+v.h/2;
-  const x0 = snapVal(cx-res.width/2), x1 = snapVal(cx+res.width/2);
-  const y0 = snapVal(cy-res.depth/2), y1 = snapVal(cy+res.depth/2);
-  const mk = (ax,ay,bx,by) => ({ id:uid(), x1:ax, y1:ay, x2:bx, y2:by, thickness:res.thickness, hasWindow:false, doors:[], overlapping:false });
-  if (res.sides.top) state.walls.push(mk(x0,y0,x1,y0));
-  if (res.sides.right) state.walls.push(mk(x1,y0,x1,y1));
-  if (res.sides.bottom) state.walls.push(mk(x1,y1,x0,y1));
-  if (res.sides.left) state.walls.push(mk(x0,y1,x0,y0));
-  recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
+  generateRoomOutline(res.width, res.depth, res.thickness, res.sides);
+};
+
+document.getElementById("btnStdBedroom").onclick = ()=>{
+  const thickness = parseFloat(document.getElementById("wallThickness").value) || 12.5;
+  generateRoomOutline(200, 450, thickness, { top:true, right:true, bottom:true, left:true });
 };
 
 /* ============================== POINTER INTERACTION ============================== */
@@ -1982,7 +2037,7 @@ function onPointerDown(e){
       const near = nearestWallEndpoint(pos, null);
       const p = near || snapWallPoint(wallDraft, pos, e.shiftKey);
       pushHistory();
-      const thickness = parseFloat(document.getElementById("wallThickness").value) || 15;
+      const thickness = parseFloat(document.getElementById("wallThickness").value) || 12.5;
       const w = { id: uid(), x1: wallDraft.x, y1: wallDraft.y, x2: p.x, y2: p.y, thickness, hasWindow:false, doors:[], overlapping:false };
       state.walls.push(w);
       wallDraft = p;
@@ -2022,14 +2077,18 @@ function onPointerDown(e){
     return;
   }
   if (handle && handle.classList.contains("group-rotate-handle")){
-    const items = state.furniture.filter(f=>selection.ids.includes(f.id));
-    if (!items.length) return;
-    const bbox = furnitureGroupBBox(items);
+    const members = groupMembersFromSelection();
+    if (!members.length) return;
+    const bbox = groupBBoxGeneric(members);
     pushHistory();
     const starts = {};
-    for (const f of items) starts[f.id] = { cx:f.cx, cy:f.cy, rot:f.rot };
+    for (const m of members){
+      starts[memberKey(m)] = m.kind === "furniture"
+        ? { cx:m.ref.cx, cy:m.ref.cy, rot:m.ref.rot }
+        : { x1:m.ref.x1, y1:m.ref.y1, x2:m.ref.x2, y2:m.ref.y2 };
+    }
     drag = {
-      type:"rotate-furniture-group", ids: selection.ids.slice(),
+      type:"rotate-group", members,
       pivot: { x:bbox.cx, y:bbox.cy },
       startAngle: Math.atan2(pos.y-bbox.cy, pos.x-bbox.cx),
       starts
@@ -2131,22 +2190,12 @@ function onPointerMove(e){
       recomputeCollisions(); renderObstacleLayers(); renderHandles();
       break;
     }
-    case "rotate-furniture-group": {
+    case "rotate-group": {
       const curAngle = Math.atan2(pos.y-drag.pivot.y, pos.x-drag.pivot.x);
       let deltaDeg = (curAngle - drag.startAngle) * 180/Math.PI;
       if (!e.shiftKey) deltaDeg = Math.round(deltaDeg/15)*15;
-      const rad = deltaDeg*Math.PI/180;
-      const cos = Math.cos(rad), sin = Math.sin(rad);
-      for (const id of drag.ids){
-        const f = state.furniture.find(x=>x.id===id);
-        if (!f) continue;
-        const s = drag.starts[id];
-        const ox = s.cx - drag.pivot.x, oy = s.cy - drag.pivot.y;
-        f.cx = snapVal(drag.pivot.x + (ox*cos - oy*sin));
-        f.cy = snapVal(drag.pivot.y + (ox*sin + oy*cos));
-        f.rot = ((s.rot + deltaDeg) % 360 + 360) % 360;
-      }
-      recomputeCollisions(); renderObstacleLayers(); renderHandles(); renderInspector();
+      applyGroupRotation(drag.members, drag.starts, drag.pivot, deltaDeg);
+      recomputeCollisions(); recomputeAreas(); renderObstacleLayers(); renderAreas(); renderHandles(); renderInspector();
       break;
     }
     case "move-pillar": {
