@@ -2083,20 +2083,23 @@ function placeFurnitureAt(type, cx, cy, rot){
 function fillStandardBedroomFurniture(room, thickness){
   pushHistory();
   const ihw = 100 - thickness/2, ihh = 225 - thickness/2, margin = 5;
-  const bedSpec = SPECS.bed, closetSpec = SPECS.closet;
+  const bedSpec = SPECS.bed, closetSpec = SPECS.closet, deskSpec = SPECS.desk;
   const newIds = [];
-  // bed: top-left, headboard against the top wall
+  // bed: runs the full left wall, headboard at the top — keeps the entire left side clear for it
   newIds.push(...placeFurnitureAt("bed",
     room.cx - ihw + margin + bedSpec.w/2,
     room.cy - ihh + margin + bedSpec.h/2,
     0));
-  // closet: top-right, top-aligned with the bed
+  // desk (+auto chair): against the right wall, mid-room — a separate zone from the bed,
+  // rotated 90° so its long edge runs along the wall and the chair is pulled into the room
+  const deskCx = room.cx + ihw - margin - deskSpec.h/2;
+  const deskCy = room.cy + 80;
+  newIds.push(...placeFurnitureAt("desk", deskCx, deskCy, 90));
+  // closet: bottom-right, stacked below the desk on the same wall — well clear of the bed
   newIds.push(...placeFurnitureAt("closet",
     room.cx + ihw - margin - closetSpec.w/2,
-    room.cy - ihh + margin + closetSpec.h/2,
+    room.cy + ihh - margin - closetSpec.h/2,
     0));
-  // desk (+auto chair): centered against the bottom wall, chair pulled toward the room interior
-  newIds.push(...placeFurnitureAt("desk", room.cx, room.cy + ihh - margin - SPECS.desk.h/2, 180));
   selection = { type:"furniture", ids:newIds };
   recomputeCollisions(); renderAll(); saveLocal();
 }
