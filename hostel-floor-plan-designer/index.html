@@ -364,7 +364,7 @@ const SPECS = {
   basin:  { label:"Basin",        w:60,  h:75,  minW:50, minH:75,  color:"#caf0f8" },
 };
 const PILLAR_SPEC = { label:"Pillar", w:25, h:25, color:"#94a3b8" };
-const DOOR_MIN = 80, DOOR_MAX = 95, DOOR_DEFAULT = 90;
+const DOOR_WIDTH_CM = 85; // fixed door width, not user-adjustable
 const EPS = 0.02;
 const LS_KEY = "hostelFloorPlanDesigner.v2";
 
@@ -1565,7 +1565,7 @@ function renderWallInspector(){
   const dTitle = document.createElement("div"); dTitle.className="panel-title"; dTitle.textContent="Doors on this wall"; wrap.appendChild(dTitle);
 
   (w.doors||[]).forEach(d=>{
-    if (d.width < DOOR_MIN) d.width = DOOR_MIN;
+    d.width = DOOR_WIDTH_CM;
     if (!d.hinge) d.hinge = "left";
     if (!d.swing) d.swing = "out";
     const isSliding = d.type === "sliding";
@@ -1594,8 +1594,8 @@ function renderWallInspector(){
         </div>
         <div style="display:flex;align-items:center;gap:5px;">
           <span style="width:34px;">width</span>
-          <input type="range" min="${DOOR_MIN}" max="${DOOR_MAX+10}" step="1" value="${d.width}" title="door width (min 80cm / 800mm)">
-          <span style="width:40px;text-align:right;">${Math.round(d.width)}cm</span>
+          <span style="flex:1;color:var(--ink-60);">fixed</span>
+          <span style="width:40px;text-align:right;">${DOOR_WIDTH_CM}cm</span>
         </div>
         <div style="display:flex;align-items:center;gap:5px;">
           <span style="width:34px;">pos.</span>
@@ -1605,10 +1605,7 @@ function renderWallInspector(){
       </div>
       <button class="x" title="remove door">✕</button>
     `;
-    const [widthSlider, posSlider] = row.querySelectorAll('input[type=range]');
-    const widthValueLabel = widthSlider.nextElementSibling;
-    widthSlider.oninput = ()=>{ d.width = Math.max(DOOR_MIN, +widthSlider.value); widthValueLabel.textContent = Math.round(d.width)+"cm"; renderWalls(); };
-    widthSlider.onchange = ()=>{ pushHistory(); saveLocal(); };
+    const [posSlider] = row.querySelectorAll('input[type=range]');
     posSlider.oninput = ()=>{ d.t = +posSlider.value/100; renderWalls(); };
     posSlider.onchange = ()=>{ pushHistory(); saveLocal(); };
     row.querySelectorAll(".doorTypeBtn").forEach(btn=>{
@@ -1629,14 +1626,14 @@ function renderWallInspector(){
   btnAddDoor.onclick = ()=>{
     pushHistory();
     w.doors = w.doors || [];
-    w.doors.push({ id: uid(), t:0.5, width: DOOR_DEFAULT, type:"hinged", hinge:"left", swing:"out" });
+    w.doors.push({ id: uid(), t:0.5, width: DOOR_WIDTH_CM, type:"hinged", hinge:"left", swing:"out" });
     renderAll(); saveLocal();
   };
   const btnAddSliding = document.createElement("button"); btnAddSliding.className = "btn"; btnAddSliding.style.marginTop="0"; btnAddSliding.textContent = "＋ Sliding door";
   btnAddSliding.onclick = ()=>{
     pushHistory();
     w.doors = w.doors || [];
-    w.doors.push({ id: uid(), t:0.5, width: DOOR_DEFAULT, type:"sliding", swing:"out" });
+    w.doors.push({ id: uid(), t:0.5, width: DOOR_WIDTH_CM, type:"sliding", swing:"out" });
     renderAll(); saveLocal();
   };
   btnRow.appendChild(btnAddDoor); btnRow.appendChild(btnAddSliding);
