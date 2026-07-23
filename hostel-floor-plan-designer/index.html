@@ -158,8 +158,8 @@
   details.ref td:first-child { font-weight: 600; color: var(--ink); white-space: nowrap; padding-right: 8px; }
 
   /* ---------- canvas area ---------- */
-  .canvas-wrap { flex: 1; position: relative; background: #d9dde3; min-width: 0; }
-  svg#stage { width: 100%; height: 100%; display: block; touch-action: none; background: repeating-conic-gradient(#e7eaef 0% 25%, #dde1e8 0% 50%) 50% / 22px 22px; }
+  .canvas-wrap { flex: 1; position: relative; background: #d9dde3; min-width: 0; display: flex; flex-direction: column; }
+  svg#stage { width: 100%; flex: 1; min-height: 0; display: block; touch-action: none; background: repeating-conic-gradient(#e7eaef 0% 25%, #dde1e8 0% 50%) 50% / 22px 22px; }
   .zoom-controls {
     position: absolute; bottom: 14px; right: 14px;
     display: flex; flex-direction: column; gap: 4px;
@@ -170,6 +170,16 @@
   .zoom-controls button:hover { background: var(--accent-light); }
   .scale-bar { position: absolute; bottom: 14px; left: 14px; background: rgba(255,255,255,0.92); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 10px; font-size: 11px; display: flex; align-items: center; gap: 8px; }
   .scale-bar .bar { height: 4px; background: var(--ink); }
+  .hscroll-track {
+    position: relative; flex: 0 0 auto; height: 13px;
+    background: rgba(0,0,0,0.06); border-top: 1px solid var(--rule); cursor: pointer;
+  }
+  .hscroll-thumb {
+    position: absolute; top: 1px; height: 11px; min-width: 28px;
+    border-radius: 6px; background: rgba(37,99,235,0.4); cursor: grab;
+  }
+  .hscroll-thumb:hover { background: rgba(37,99,235,0.6); }
+  .hscroll-thumb.dragging { background: rgba(37,99,235,0.75); cursor: grabbing; }
   .hint-banner {
     position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
     background: var(--ink); color: #fff; font-size: 12px; padding: 7px 14px; border-radius: 999px;
@@ -230,6 +240,7 @@
       <button class="hdr-btn" id="btnSaveJson">💾 Save Project</button>
       <button class="hdr-btn" id="btnLoadJson">📂 Load Project</button>
       <button class="hdr-btn" id="btnExportPng">🖼 Export PNG</button>
+      <button class="hdr-btn" id="btnExportJpg">🖼 Export JPEG</button>
       <button class="hdr-btn" id="btnNew">🗑 New</button>
     </div>
     <input type="file" id="fileInputImg" accept="image/*">
@@ -272,7 +283,7 @@
         <div class="row"><span class="swatch-dot" style="background:#cbd5e1;border:1.5px solid #475569"></span> Pillar (also blocks overlap)</div>
         <div class="row"><span class="swatch-dot" style="background:rgba(37,99,235,0.15);border:1.5px dashed #2563eb"></span> Enclosed room area</div>
       </div>
-      <div class="tip">Tip: shift-click or drag a box on empty floor to multi-select furniture, then drag any selected item to move the whole group. Ctrl+C / Ctrl+V (or the header buttons) copy-paste the selection. Scroll to pan the plan, Ctrl+scroll (or pinch) to zoom — or hold Space / middle-drag to pan. Drawing a wall snaps to clean 0°/45°/90° angles near a corner; hold Shift for a free angle.</div>
+      <div class="tip">Tip: shift-click or drag a box on empty floor to multi-select furniture, then drag any selected item to move the whole group. Ctrl+C / Ctrl+V (or the header buttons) copy-paste the selection. Scroll to pan the plan (hold Shift to scroll left/right), Ctrl+scroll (or pinch) to zoom — or hold Space / middle-drag to pan. Drawing a wall snaps to clean 0°/45°/90° angles near a corner; hold Shift for a free angle.</div>
 
       <details class="ref">
         <summary>Minimum size reference</summary>
@@ -324,6 +335,9 @@
         <button id="zoomIn">+</button>
         <button id="zoomReset">⤢</button>
         <button id="zoomOut">−</button>
+      </div>
+      <div class="hscroll-track" id="hScrollTrack" title="Drag to pan left/right">
+        <div class="hscroll-thumb" id="hScrollThumb"></div>
       </div>
     </div>
 
@@ -407,6 +421,8 @@ const hintBanner = document.getElementById("hintBanner");
 const emptyState = document.getElementById("emptyState");
 const calibStatusEl = document.getElementById("calibStatus");
 const scaleBarEl = document.getElementById("scaleBar");
+const hScrollTrack = document.getElementById("hScrollTrack");
+const hScrollThumb = document.getElementById("hScrollThumb");
 
 const NS = "http://www.w3.org/2000/svg";
 function el(tag, attrs, ...children){
@@ -607,7 +623,84 @@ function recomputeAreas(){ state.enclosedRooms = computeEnclosedRooms(); }
 function applyViewBox(){
   const v = state.viewBox;
   svg.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${v.h}`);
+  updateHScrollbar();
 }
+
+function getWorldExtentX(){
+  let minX = Infinity, maxX = -Infinity;
+  for (const f of state.furniture){ const r = Math.max(f.w,f.h)/2; minX = Math.min(minX, f.cx-r); maxX = Math.max(maxX, f.cx+r); }
+  for (const p of state.pillars){ const r = Math.max(p.w,p.h)/2; minX = Math.min(minX, p.cx-r); maxX = Math.max(maxX, p.cx+r); }
+  for (const w of state.walls){ minX = Math.min(minX, w.x1, w.x2); maxX = Math.max(maxX, w.x1, w.x2); }
+  if (state.imageNaturalW){ minX = Math.min(minX, 0); maxX = Math.max(maxX, state.imageNaturalW*state.imageScale); }
+  const v = state.viewBox;
+  minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x+v.w);
+  if (!isFinite(minX) || !isFinite(maxX)){ minX = 0; maxX = 500; }
+  const pad = Math.max(200, v.w*0.5);
+  return { min: minX-pad, max: maxX+pad };
+}
+
+function updateHScrollbar(){
+  if (!hScrollTrack || !hScrollThumb) return;
+  const trackW = hScrollTrack.clientWidth;
+  if (!trackW) return;
+  const ext = getWorldExtentX();
+  const v = state.viewBox;
+  const totalW = Math.max(ext.max-ext.min, v.w);
+  const thumbW = Math.max(28, Math.min(trackW, trackW * (v.w/totalW)));
+  const scrollable = Math.max(totalW - v.w, 1);
+  const frac = Math.max(0, Math.min(1, (v.x-ext.min)/scrollable));
+  const left = frac * (trackW-thumbW);
+  hScrollThumb.style.width = thumbW+"px";
+  hScrollThumb.style.left = left+"px";
+  hScrollThumb._extent = ext;
+}
+
+(function setupHScrollbar(){
+  let dragState = null;
+  hScrollThumb.addEventListener("pointerdown", (e)=>{
+    e.preventDefault(); e.stopPropagation();
+    hScrollThumb.classList.add("dragging");
+    hScrollThumb.setPointerCapture(e.pointerId);
+    dragState = { startClientX:e.clientX, startLeft: parseFloat(hScrollThumb.style.left)||0 };
+  });
+  hScrollThumb.addEventListener("pointermove", (e)=>{
+    if (!dragState) return;
+    const trackW = hScrollTrack.clientWidth;
+    const thumbW = hScrollThumb.clientWidth;
+    const ext = hScrollThumb._extent || getWorldExtentX();
+    const v = state.viewBox;
+    const totalW = Math.max(ext.max-ext.min, v.w);
+    const scrollable = Math.max(totalW - v.w, 1);
+    const dx = e.clientX - dragState.startClientX;
+    const newLeft = Math.max(0, Math.min(trackW-thumbW, dragState.startLeft+dx));
+    const frac = (trackW-thumbW) > 0 ? newLeft/(trackW-thumbW) : 0;
+    v.x = ext.min + frac*scrollable;
+    applyViewBox();
+  });
+  function endDrag(e){
+    if (!dragState) return;
+    dragState = null;
+    hScrollThumb.classList.remove("dragging");
+    try { hScrollThumb.releasePointerCapture(e.pointerId); } catch(err){}
+  }
+  hScrollThumb.addEventListener("pointerup", endDrag);
+  hScrollThumb.addEventListener("pointercancel", endDrag);
+  hScrollTrack.addEventListener("pointerdown", (e)=>{
+    if (e.target === hScrollThumb) return;
+    const rect = hScrollTrack.getBoundingClientRect();
+    const trackW = rect.width;
+    const thumbW = hScrollThumb.clientWidth;
+    const ext = getWorldExtentX();
+    const v = state.viewBox;
+    const totalW = Math.max(ext.max-ext.min, v.w);
+    const scrollable = Math.max(totalW - v.w, 1);
+    const clickLeft = Math.max(0, Math.min(trackW-thumbW, (e.clientX-rect.left)-thumbW/2));
+    const frac = (trackW-thumbW) > 0 ? clickLeft/(trackW-thumbW) : 0;
+    v.x = ext.min + frac*scrollable;
+    applyViewBox();
+  });
+  window.addEventListener("resize", updateHScrollbar);
+})();
 function screenToWorld(evt){
   const pt = svg.createSVGPoint();
   pt.x = evt.clientX; pt.y = evt.clientY;
@@ -825,7 +918,7 @@ function renderPillars(){
   clearNode(pillarsLayer);
   for (const p of state.pillars){
     const g = el("g", { transform:`translate(${p.cx},${p.cy}) rotate(${p.rot})`, "data-id":p.id, "data-kind":"pillar", class:"pillar-group" });
-    g.appendChild(el("rect", { x:-p.w/2, y:-p.h/2, width:p.w, height:p.h, fill: fillFor(p.overlapping), stroke: strokeFor(p.overlapping), "stroke-width":1.4, class:"hit" }));
+    g.appendChild(el("rect", { x:-p.w/2, y:-p.h/2, width:p.w, height:p.h, fill:"#cbd5e1", stroke:"#475569", "stroke-width":1.4, class:"hit" }));
     g.appendChild(el("rect", { x:-p.w/2, y:-p.h/2, width:p.w, height:p.h, fill:"url(#pillarHatch)", "pointer-events":"none" }));
     pillarsLayer.appendChild(g);
   }
@@ -1739,6 +1832,7 @@ document.getElementById("btnSaveJson").onclick = async ()=>{
     try {
       const handle = await window.showSaveFilePicker({
         suggestedName: "hostel-floor-plan.json",
+        startIn: "desktop",
         types: [{ description:"Floor plan project", accept:{ "application/json":[".json"] } }]
       });
       const writable = await handle.createWritable();
@@ -1758,6 +1852,8 @@ document.getElementById("btnSaveJson").onclick = async ()=>{
   a.href = URL.createObjectURL(blob);
   a.download = name;
   a.click();
+  showHint("Downloaded to your browser's default download folder — this browser doesn't support picking Desktop directly, so move the file there if needed.");
+  setTimeout(hideHint, 4000);
 };
 const fileInputJson = document.getElementById("fileInputJson");
 document.getElementById("btnLoadJson").onclick = ()=> fileInputJson.click();
@@ -1777,8 +1873,9 @@ fileInputJson.addEventListener("change", (e)=>{
   fileInputJson.value = "";
 });
 
-document.getElementById("btnExportPng").onclick = exportPNG;
-function exportPNG(){
+document.getElementById("btnExportPng").onclick = ()=> exportRaster("image/png", "png");
+document.getElementById("btnExportJpg").onclick = ()=> exportRaster("image/jpeg", "jpg", 0.92);
+function exportRaster(mime, ext, quality){
   const clone = svg.cloneNode(true);
   clone.querySelectorAll("#handleLayer, #overlayLayer, #gridLayer").forEach(n=>n.remove());
   let minX=0,minY=0,maxX=state.viewBox.w,maxY=state.viewBox.h;
@@ -1814,11 +1911,11 @@ function exportPNG(){
       if (!blob){ alert("Export failed — could not render the image."); return; }
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "hostel-floor-plan.png";
+      a.download = `hostel-floor-plan.${ext}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-    }, "image/png");
+    }, mime, quality);
   };
   img.onerror = ()=>{
     URL.revokeObjectURL(url);
@@ -1987,8 +2084,15 @@ function onWheel(e){
     zoomBy(e.deltaY < 0 ? 0.9 : 1/0.9, pos);
     return;
   }
+  let dx = e.deltaX, dy = e.deltaY;
+  if (e.shiftKey && dx === 0){
+    // some mice only ever report vertical wheel motion; while Shift is held,
+    // treat that motion as a left/right pan instead (matches browsers that
+    // already remap shift+wheel to deltaX on trackpads).
+    dx = dy; dy = 0;
+  }
   const p0 = screenToWorld(e);
-  const p1 = screenToWorld({ clientX: e.clientX + e.deltaX, clientY: e.clientY + e.deltaY });
+  const p1 = screenToWorld({ clientX: e.clientX + dx, clientY: e.clientY + dy });
   state.viewBox.x += (p1.x - p0.x);
   state.viewBox.y += (p1.y - p0.y);
   applyViewBox();
