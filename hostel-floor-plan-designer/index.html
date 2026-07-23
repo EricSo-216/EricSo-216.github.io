@@ -1444,7 +1444,13 @@ function renderGroupInspector(){
   for (const f of items){
     const spec = SPECS[f.type];
     const card = document.createElement("div"); card.className = "item-card selected";
-    card.innerHTML = `<span class="dot" style="background:${spec.color}"></span><span class="meta"><span class="t">${furnitureDisplayLabel(f, spec)}</span><br><span class="d">${Math.round(f.w)}×${Math.round(f.h)} cm</span></span><span class="badge ${f.overlapping?"bad":"ok"}">${f.overlapping?"overlap":"ok"}</span>`;
+    if (f.type === "bed"){
+      card.innerHTML = `<span class="dot" style="background:${spec.color}"></span><span class="meta"><input type="text" class="bed-label-input" placeholder="Bed ${bedNumber(f)}" value="${(f.label||"").replace(/"/g,"&quot;")}" style="width:90%;border:1px solid var(--rule);border-radius:4px;padding:2px 4px;font-size:12px;font-weight:600;"><br><span class="d">${Math.round(f.w)}×${Math.round(f.h)} cm</span></span><span class="badge ${f.overlapping?"bad":"ok"}">${f.overlapping?"overlap":"ok"}</span>`;
+      const input = card.querySelector(".bed-label-input");
+      input.addEventListener("change", ()=>{ pushHistory(); f.label = input.value.trim() || null; renderAll(); saveLocal(); });
+    } else {
+      card.innerHTML = `<span class="dot" style="background:${spec.color}"></span><span class="meta"><span class="t">${furnitureDisplayLabel(f, spec)}</span><br><span class="d">${Math.round(f.w)}×${Math.round(f.h)} cm</span></span><span class="badge ${f.overlapping?"bad":"ok"}">${f.overlapping?"overlap":"ok"}</span>`;
+    }
     inspector.appendChild(card);
   }
 }
@@ -1510,7 +1516,12 @@ function renderMixedGroupInspector(){
   const listTitle = document.createElement("div"); listTitle.className = "panel-title"; listTitle.textContent = "In this selection"; inspector.appendChild(listTitle);
   for (const m of members){
     const card = document.createElement("div"); card.className = "item-card selected";
-    if (m.kind === "furniture"){
+    if (m.kind === "furniture" && m.ref.type === "bed"){
+      const f = m.ref;
+      card.innerHTML = `<span class="dot" style="background:${SPECS.bed.color}"></span><span class="meta"><input type="text" class="bed-label-input" placeholder="Bed ${bedNumber(f)}" value="${(f.label||"").replace(/"/g,"&quot;")}" style="width:90%;border:1px solid var(--rule);border-radius:4px;padding:2px 4px;font-size:12px;font-weight:600;"><br><span class="d">${Math.round(f.w)}×${Math.round(f.h)} cm</span></span><span class="badge ${f.overlapping?"bad":"ok"}">${f.overlapping?"overlap":"ok"}</span>`;
+      const input = card.querySelector(".bed-label-input");
+      input.addEventListener("change", ()=>{ pushHistory(); f.label = input.value.trim() || null; renderAll(); saveLocal(); });
+    } else if (m.kind === "furniture"){
       const spec = SPECS[m.ref.type];
       card.innerHTML = `<span class="dot" style="background:${spec.color}"></span><span class="meta"><span class="t">${furnitureDisplayLabel(m.ref, spec)}</span><br><span class="d">${Math.round(m.ref.w)}×${Math.round(m.ref.h)} cm</span></span><span class="badge ${m.ref.overlapping?"bad":"ok"}">${m.ref.overlapping?"overlap":"ok"}</span>`;
     } else {
