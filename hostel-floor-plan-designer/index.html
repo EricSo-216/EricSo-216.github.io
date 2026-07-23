@@ -297,7 +297,7 @@
           <tr><td>Chair</td><td>≥ 40 × 40 cm</td></tr>
           <tr><td>Closet</td><td>≥ 60 × 60 cm</td></tr>
           <tr><td>Toilet cubicle (internal)</td><td>≥ 70 × 120 cm</td></tr>
-          <tr><td>En-suite (WC+Basin+Shower)</td><td>90×180 min · 120–150 × 200 recommended</td></tr>
+          <tr><td>En-suite (WC+Basin+Shower)</td><td>200×180 or 250×160 cm</td></tr>
           <tr><td>Shower</td><td>90 × 90 cm</td></tr>
           <tr><td>Basin (compact) + clearance</td><td>≥ 50 × 75 cm</td></tr>
           <tr><td>Door opening</td><td>80–90 cm wide</td></tr>
@@ -360,7 +360,7 @@ const SPECS = {
   chair:  { label:"Chair",        w:45,  h:45,  minW:40, minH:40,  color:"#c8b6ff" },
   closet: { label:"Closet",       w:60,  h:60,  minW:60, minH:60,  color:"#fb8500" },
   toilet: { label:"Toilet Cubicle", w:80, h:150, minW:70, minH:120, color:"#adb5bd" },
-  ensuite:{ label:"En-suite (WC+Basin+Shower)", w:150, h:200, minW:90, minH:180, color:"#7fb3a8" },
+  ensuite:{ label:"En-suite (WC+Basin+Shower)", w:200, h:180, minW:160, minH:160, color:"#7fb3a8" },
   shower: { label:"Shower",       w:90,  h:90,  minW:90, minH:90,  color:"#90e0ef" },
   basin:  { label:"Basin",        w:60,  h:75,  minW:50, minH:75,  color:"#caf0f8" },
 };
@@ -1407,6 +1407,19 @@ function renderFurnitureInspector(){
     labelInput.addEventListener("change", ()=>{ pushHistory(); f.label = labelInput.value.trim() || null; renderAll(); saveLocal(); });
     rowLabel.appendChild(labelEl); rowLabel.appendChild(labelInput);
     wrap.appendChild(rowLabel);
+  }
+  if (f.type === "ensuite"){
+    const presets = [{ w:200, h:180, label:"200×180" }, { w:250, h:160, label:"250×160" }];
+    const presetRow = document.createElement("div"); presetRow.className = "preset-row";
+    for (const p of presets){
+      const btn = document.createElement("button"); btn.className = "preset-btn";
+      if (Math.abs(f.w-p.w)<0.01 && Math.abs(f.h-p.h)<0.01) btn.classList.add("active");
+      btn.textContent = p.label;
+      btn.title = "Fits a toilet, basin and shower in " + p.label + " cm";
+      btn.onclick = ()=>{ pushHistory(); f.w = p.w; f.h = p.h; recomputeCollisions(); renderAll(); saveLocal(); };
+      presetRow.appendChild(btn);
+    }
+    wrap.appendChild(presetRow);
   }
   const rowW = fieldRow("Width (cm)", f.w, 20, 300, v=>{ pushHistory(); f.w=v; recomputeCollisions(); renderAll(); saveLocal(); });
   const rowH = fieldRow("Depth (cm)", f.h, 20, 300, v=>{ pushHistory(); f.h=v; recomputeCollisions(); renderAll(); saveLocal(); });
