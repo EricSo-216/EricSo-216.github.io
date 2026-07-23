@@ -918,7 +918,7 @@ function renderPillars(){
   clearNode(pillarsLayer);
   for (const p of state.pillars){
     const g = el("g", { transform:`translate(${p.cx},${p.cy}) rotate(${p.rot})`, "data-id":p.id, "data-kind":"pillar", class:"pillar-group" });
-    g.appendChild(el("rect", { x:-p.w/2, y:-p.h/2, width:p.w, height:p.h, fill: fillFor(p.overlapping), stroke: strokeFor(p.overlapping), "stroke-width":1.4, class:"hit" }));
+    g.appendChild(el("rect", { x:-p.w/2, y:-p.h/2, width:p.w, height:p.h, fill:"#cbd5e1", stroke:"#475569", "stroke-width":1.4, class:"hit" }));
     g.appendChild(el("rect", { x:-p.w/2, y:-p.h/2, width:p.w, height:p.h, fill:"url(#pillarHatch)", "pointer-events":"none" }));
     pillarsLayer.appendChild(g);
   }
