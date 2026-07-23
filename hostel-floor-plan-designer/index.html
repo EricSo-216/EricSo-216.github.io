@@ -251,7 +251,7 @@
     <!-- LEFT SIDEBAR -->
     <div class="sidebar left">
       <div class="panel-title">Furniture &amp; Fixtures</div>
-      <button class="tool-btn" id="btnStdBedroom" title="Insert a 200 × 450 cm room outline">🛏 Standard Bedroom (200×450 cm)</button>
+      <button class="tool-btn" id="btnStdBedroom" title="Insert a 200 × 450 cm room outline furnished with a bed, desk and closet">🛏 Standard Bedroom (200×450 cm)</button>
       <div id="palette"></div>
 
       <div class="panel-title">Structure</div>
@@ -2055,6 +2055,50 @@ function generateRoomOutline(width, depth, thickness, sides){
   if (sides.bottom) state.walls.push(mk(x1,y1,x0,y1));
   if (sides.left) state.walls.push(mk(x0,y1,x0,y0));
   recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
+  return { cx, cy, x0, y0, x1, y1 };
+}
+
+function placeFurnitureAt(type, cx, cy, rot){
+  const spec = SPECS[type];
+  const f = { id: uid(), type, cx, cy, w: spec.w, h: spec.h, rot, overlapping:false };
+  state.furniture.push(f);
+  const newIds = [f.id];
+  if (type === "desk"){
+    const chairSpec = SPECS.chair;
+    const gap = 3;
+    const localY = f.h/2 + chairSpec.h/2 + gap;
+    const rad = f.rot*Math.PI/180;
+    const chair = {
+      id: uid(), type:"chair",
+      cx: f.cx + (0*Math.cos(rad) - localY*Math.sin(rad)),
+      cy: f.cy + (0*Math.sin(rad) + localY*Math.cos(rad)),
+      w: chairSpec.w, h: chairSpec.h, rot: f.rot, overlapping:false
+    };
+    state.furniture.push(chair);
+    newIds.push(chair.id);
+  }
+  return newIds;
+}
+
+function fillStandardBedroomFurniture(room, thickness){
+  pushHistory();
+  const ihw = 100 - thickness/2, ihh = 225 - thickness/2, margin = 5;
+  const bedSpec = SPECS.bed, closetSpec = SPECS.closet;
+  const newIds = [];
+  // bed: top-left, headboard against the top wall
+  newIds.push(...placeFurnitureAt("bed",
+    room.cx - ihw + margin + bedSpec.w/2,
+    room.cy - ihh + margin + bedSpec.h/2,
+    0));
+  // closet: top-right, top-aligned with the bed
+  newIds.push(...placeFurnitureAt("closet",
+    room.cx + ihw - margin - closetSpec.w/2,
+    room.cy - ihh + margin + closetSpec.h/2,
+    0));
+  // desk (+auto chair): centered against the bottom wall, chair pulled toward the room interior
+  newIds.push(...placeFurnitureAt("desk", room.cx, room.cy + ihh - margin - SPECS.desk.h/2, 180));
+  selection = { type:"furniture", ids:newIds };
+  recomputeCollisions(); renderAll(); saveLocal();
 }
 
 document.getElementById("btnRoomOutline").onclick = async ()=>{
@@ -2066,7 +2110,8 @@ document.getElementById("btnRoomOutline").onclick = async ()=>{
 
 document.getElementById("btnStdBedroom").onclick = ()=>{
   const thickness = parseFloat(document.getElementById("wallThickness").value) || 12.5;
-  generateRoomOutline(200, 450, thickness, { top:true, right:true, bottom:true, left:true });
+  const room = generateRoomOutline(200, 450, thickness, { top:true, right:true, bottom:true, left:true });
+  fillStandardBedroomFurniture(room, thickness);
 };
 
 /* ============================== POINTER INTERACTION ============================== */
