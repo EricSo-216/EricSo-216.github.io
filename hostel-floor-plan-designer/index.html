@@ -252,6 +252,7 @@
     <div class="sidebar left">
       <div class="panel-title">Furniture &amp; Fixtures</div>
       <button class="tool-btn" id="btnStdBedroom" title="Insert a 200 × 450 cm room outline furnished with a bed, desk and closet">🛏 Standard Bedroom (200×450 cm)</button>
+      <button class="tool-btn" id="btnTwinRoom" title="Insert a 200 × 700 cm room outline furnished with 2 beds, 2 desks and 2 closets">🛏🛏 Twin Room (200×700 cm)</button>
       <div id="palette"></div>
 
       <div class="panel-title">Structure</div>
@@ -2273,6 +2274,30 @@ function fillStandardBedroomFurniture(room, thickness){
   recomputeCollisions(); renderAll(); saveLocal();
 }
 
+function fillTwinRoomFurniture(room, thickness){
+  pushHistory();
+  const ihw = 100 - thickness/2, ihhFull = 350 - thickness/2, margin = 5;
+  const bedSpec = SPECS.bed, closetSpec = SPECS.closet, deskSpec = SPECS.desk;
+  const newIds = [];
+  const bedCx = room.cx - ihw + margin + bedSpec.w/2;
+  const closetCx = room.cx + ihw - margin - closetSpec.w/2;
+  const deskCx = room.cx + ihw - margin - deskSpec.h/2;
+  // bed 1 + closet 1: top end, left/right walls
+  newIds.push(...placeFurnitureAt("bed", bedCx, room.cy - ihhFull + margin + bedSpec.h/2, 0));
+  newIds.push(...placeFurnitureAt("closet", closetCx, room.cy - ihhFull + margin + closetSpec.h/2, 0));
+  // bed 2 + closet 2: bottom end, mirrored
+  newIds.push(...placeFurnitureAt("bed", bedCx, room.cy + ihhFull - margin - bedSpec.h/2, 0));
+  newIds.push(...placeFurnitureAt("closet", closetCx, room.cy + ihhFull - margin - closetSpec.h/2, 0));
+  // both desks (+auto chairs): clustered in the middle of the right wall, well clear of both
+  // beds' zones at the outer ends — rotated 90° so the chair pulls into the room, not sideways.
+  // At rot90 the desk's vertical extent is its own *width* (w), not h, since rotation swaps them.
+  const deskGap = 30;
+  newIds.push(...placeFurnitureAt("desk", deskCx, room.cy - deskSpec.w/2 - deskGap/2, 90));
+  newIds.push(...placeFurnitureAt("desk", deskCx, room.cy + deskSpec.w/2 + deskGap/2, 90));
+  selection = { type:"furniture", ids:newIds };
+  recomputeCollisions(); renderAll(); saveLocal();
+}
+
 document.getElementById("btnRoomOutline").onclick = async ()=>{
   const res = await askRoomOutline();
   if (!res) return;
@@ -2284,6 +2309,12 @@ document.getElementById("btnStdBedroom").onclick = ()=>{
   const thickness = parseFloat(document.getElementById("wallThickness").value) || 12.5;
   const room = generateRoomOutline(200, 450, thickness, { top:true, right:true, bottom:true, left:true });
   fillStandardBedroomFurniture(room, thickness);
+};
+
+document.getElementById("btnTwinRoom").onclick = ()=>{
+  const thickness = parseFloat(document.getElementById("wallThickness").value) || 12.5;
+  const room = generateRoomOutline(200, 700, thickness, { top:true, right:true, bottom:true, left:true });
+  fillTwinRoomFurniture(room, thickness);
 };
 
 /* ============================== POINTER INTERACTION ============================== */
