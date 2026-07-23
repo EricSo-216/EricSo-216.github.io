@@ -1033,14 +1033,21 @@ function decorateFurniture(g, type, w, h){
       break;
     }
     case "ensuite": {
-      const sSize = Math.min(w*0.42, h*0.32);
-      const scx = w/2 - sSize/2 - 4, scy = -h/2 + sSize/2 + 4;
-      g.appendChild(el("rect", { x:scx-sSize/2, y:scy-sSize/2, width:sSize, height:sSize, fill:"none", stroke:"#00000035", "stroke-dasharray":"3 3" }));
-      g.appendChild(el("circle", { cx:scx, cy:scy, r:sSize*0.08, fill:"#00000040" }));
-      const tcx = -w/2 + w*0.2, tcy = -h/2 + h*0.12;
-      g.appendChild(el("rect", { x:tcx-w*0.11, y:tcy-h*0.05, width:w*0.22, height:h*0.08, fill:"rgba(255,255,255,0.6)", stroke:"#00000040" }));
-      g.appendChild(el("ellipse", { cx:tcx, cy:tcy+h*0.09, rx:w*0.13, ry:h*0.06, fill:"rgba(255,255,255,0.6)", stroke:"#00000040" }));
-      g.appendChild(el("ellipse", { cx:0, cy:h/2-h*0.08, rx:w*0.24, ry:h*0.05, fill:"rgba(255,255,255,0.6)", stroke:"#00000040" }));
+      // sub-fixtures drawn at their real-world footprint (matching the standalone Shower/Basin
+      // specs and a typical WC bowl), clamped so they never exceed this instance's own box
+      const margin = 4;
+      const showerW = Math.min(SPECS.shower.w, w-margin*2), showerH = Math.min(SPECS.shower.h, h*0.5);
+      const scx = w/2 - showerW/2 - margin, scy = -h/2 + showerH/2 + margin;
+      g.appendChild(el("rect", { x:scx-showerW/2, y:scy-showerH/2, width:showerW, height:showerH, fill:"none", stroke:"#00000035", "stroke-dasharray":"3 3" }));
+      g.appendChild(el("circle", { cx:scx, cy:scy, r:Math.min(showerW,showerH)*0.08, fill:"#00000040" }));
+
+      const basinW = Math.min(SPECS.basin.w, w*0.45), basinCounterH = Math.min(SPECS.basin.h*0.27, h*0.12);
+      const tcx = -w/2 + basinW/2 + margin, tcy = -h/2 + basinCounterH/2 + margin;
+      g.appendChild(el("rect", { x:tcx-basinW/2, y:tcy-basinCounterH/2, width:basinW, height:basinCounterH, fill:"rgba(255,255,255,0.6)", stroke:"#00000040" }));
+      g.appendChild(el("ellipse", { cx:tcx, cy:tcy+basinCounterH*0.9, rx:basinW*0.42, ry:basinCounterH*0.55, fill:"rgba(255,255,255,0.6)", stroke:"#00000040" }));
+
+      const wcW = Math.min(40, w*0.3), wcH = Math.min(25, h*0.1); // typical WC bowl footprint, ~40x25cm
+      g.appendChild(el("ellipse", { cx:0, cy:h/2-wcH*1.2, rx:wcW/2, ry:wcH/2, fill:"rgba(255,255,255,0.6)", stroke:"#00000040" }));
       break;
     }
     case "shower": {
@@ -1268,7 +1275,7 @@ function isGroupMember(kind, id){
 function selMembers(){
   return toComposites(selection).map(cid=>{
     const [kind,id] = splitComposite(cid);
-    const ref = kind==="furniture" ? state.furniture.find(x=>x.id===id) : kind==="wall" ? state.walls.find(x=>x.id===id) : null;
+    const ref = kind==="furniture" ? state.furniture.find(x=>x.id===id) : kind==="wall" ? state.walls.find(x=>x.id===id) : kind==="pillar" ? state.pillars.find(x=>x.id===id) : null;
     return { kind, id, cid, ref };
   }).filter(m=>m.ref);
 }
@@ -1782,10 +1789,10 @@ function fieldRow(labelText, value, min, max, onCommit){
 function updateHeaderButtons(){
   const copyBtn = document.getElementById("btnCopy");
   const pasteBtn = document.getElementById("btnPaste");
-  const hasCopyableSelection = (selection.type === "furniture" || selection.type === "wall" || selection.type === "mixed") && selection.ids.length > 0;
+  const hasCopyableSelection = (selection.type === "furniture" || selection.type === "wall" || selection.type === "pillar" || selection.type === "mixed") && selection.ids.length > 0;
   copyBtn.disabled = !hasCopyableSelection;
   copyBtn.style.opacity = hasCopyableSelection ? 1 : 0.45;
-  const hasClipboard = !!clipboard && ((clipboard.furniture&&clipboard.furniture.length) || (clipboard.walls&&clipboard.walls.length));
+  const hasClipboard = !!clipboard && ((clipboard.furniture&&clipboard.furniture.length) || (clipboard.walls&&clipboard.walls.length) || (clipboard.pillars&&clipboard.pillars.length));
   pasteBtn.disabled = !hasClipboard;
   pasteBtn.style.opacity = hasClipboard ? 1 : 0.45;
 }
@@ -1796,15 +1803,16 @@ function copySelection(){
   if (!members.length) return;
   const furniture = members.filter(m=>m.kind==="furniture").map(m=>Object.assign({}, m.ref));
   const walls = members.filter(m=>m.kind==="wall").map(m=>Object.assign({}, m.ref, { doors:(m.ref.doors||[]).map(d=>Object.assign({},d)) }));
-  if (!furniture.length && !walls.length) return;
-  clipboard = { furniture, walls };
+  const pillars = members.filter(m=>m.kind==="pillar").map(m=>Object.assign({}, m.ref));
+  if (!furniture.length && !walls.length && !pillars.length) return;
+  clipboard = { furniture, walls, pillars };
   updateHeaderButtons();
-  const n = furniture.length + walls.length;
+  const n = furniture.length + walls.length + pillars.length;
   showHint(n>1 ? `Copied ${n} items.` : "Copied.");
   setTimeout(hideHint, 1200);
 }
 function pasteClipboard(){
-  if (!clipboard || (!clipboard.furniture.length && !clipboard.walls.length)) return;
+  if (!clipboard || (!clipboard.furniture.length && !clipboard.walls.length && !(clipboard.pillars&&clipboard.pillars.length))) return;
   pushHistory();
   const offset = 20;
   const newComposites = [];
@@ -1820,6 +1828,11 @@ function pasteClipboard(){
     });
     state.walls.push(nw);
     newComposites.push(makeComposite("wall", nw.id));
+  }
+  for (const item of (clipboard.pillars||[])){
+    const np = Object.assign({}, item, { id: uid(), cx: item.cx+offset, cy: item.cy+offset, overlapping:false });
+    state.pillars.push(np);
+    newComposites.push(makeComposite("pillar", np.id));
   }
   finalizeSelection(newComposites);
   recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
