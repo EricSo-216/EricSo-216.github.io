@@ -237,8 +237,16 @@
       <div class="panel-title">Structure</div>
       <button class="tool-btn" id="btnWallTool">🧱 Draw Wall (click canvas)</button>
       <div class="field-row">
+        <label>Wall type</label>
+        <select id="wallTypePreset">
+          <option value="custom">Custom</option>
+          <option value="10">Lightweight Partition (100mm)</option>
+          <option value="17.5">Concrete Wall (175mm)</option>
+        </select>
+      </div>
+      <div class="field-row">
         <label>Wall thickness (cm)</label>
-        <input type="number" id="wallThickness" value="15" min="8" max="30" step="1">
+        <input type="number" id="wallThickness" value="15" min="8" max="30" step="0.5">
       </div>
       <button class="tool-btn" id="btnRoomOutline">⬛ Room Outline…</button>
       <button class="tool-btn" id="btnPillarTool">🔲 Add Pillar (click canvas)</button>
@@ -1353,6 +1361,19 @@ function renderWallInspector(){
     <div class="stat-row"><span>Length</span><b>${Math.round(wallLength(w))} cm</b></div>
     <div class="stat-row"><span>Status</span><span class="badge ${w.overlapping?"bad":"ok"}">${w.overlapping?"overlap":"ok"}</span></div>
   `;
+  const presetRow = document.createElement("div"); presetRow.className = "field-row";
+  const matchPreset = Math.abs(w.thickness-10)<0.01 ? "10" : Math.abs(w.thickness-17.5)<0.01 ? "17.5" : "custom";
+  presetRow.innerHTML = `<label>Wall type</label>
+    <select>
+      <option value="custom" ${matchPreset==="custom"?"selected":""}>Custom</option>
+      <option value="10" ${matchPreset==="10"?"selected":""}>Lightweight Partition (100mm)</option>
+      <option value="17.5" ${matchPreset==="17.5"?"selected":""}>Concrete Wall (175mm)</option>
+    </select>`;
+  presetRow.querySelector("select").onchange = (e)=>{
+    if (e.target.value === "custom") return;
+    pushHistory(); w.thickness = parseFloat(e.target.value); recomputeCollisions(); renderAll(); saveLocal();
+  };
+  wrap.appendChild(presetRow);
   const rowT = fieldRow("Thickness (cm)", w.thickness, 8, 30, v=>{ pushHistory(); w.thickness=v; recomputeCollisions(); renderAll(); saveLocal(); });
   wrap.appendChild(rowT);
 
@@ -1629,6 +1650,20 @@ document.getElementById("btnPillarTool").onclick = ()=>{
 
 document.getElementById("chkGrid").onchange = e=>{ state.showGrid = e.target.checked; renderGrid(); };
 document.getElementById("chkSnap").onchange = e=>{ state.snap = e.target.checked; };
+
+const wallTypePreset = document.getElementById("wallTypePreset");
+const wallThicknessInput = document.getElementById("wallThickness");
+function syncWallPresetFromThickness(){
+  const v = String(parseFloat(wallThicknessInput.value));
+  const match = [...wallTypePreset.options].find(o => o.value !== "custom" && parseFloat(o.value) === parseFloat(v));
+  wallTypePreset.value = match ? match.value : "custom";
+}
+wallTypePreset.onchange = ()=>{
+  if (wallTypePreset.value === "custom") return;
+  wallThicknessInput.value = wallTypePreset.value;
+};
+wallThicknessInput.addEventListener("input", syncWallPresetFromThickness);
+syncWallPresetFromThickness();
 
 document.getElementById("btnUndo").onclick = undo;
 document.getElementById("btnCopy").onclick = copySelection;
