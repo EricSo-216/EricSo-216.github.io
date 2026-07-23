@@ -378,6 +378,7 @@ let state = {
   pillars: [],
   walls: [],
   enclosedRooms: [],
+  roomStyles: {},
   viewBox: { x:0, y:0, w:500, h:400 },
   showGrid: true,
   snap: true,
@@ -652,6 +653,25 @@ function roomWindowCheck(room){
   return { hasWindow:true, maxDist, ok: maxDist <= MAX_WINDOW_DIST_CM };
 }
 
+/* Rooms are recomputed from scratch on every wall edit, so a stable ID (derived from the
+   room's centroid, which is geometry-derived and won't change unless the walls do) is used
+   to remember a custom fill color/opacity for "the same" room across recomputations. */
+function roomIdFor(room){
+  return Math.round(room.centroid.x/10) + "_" + Math.round(room.centroid.y/10);
+}
+function pointInPolygon(pt, poly){
+  let inside = false;
+  for (let i=0, j=poly.length-1; i<poly.length; j=i++){
+    const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
+    const intersect = ((yi>pt.y) !== (yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi)+xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+function roomAt(pt){
+  return (state.enclosedRooms||[]).find(r => pointInPolygon(pt, r.points)) || null;
+}
+
 /* ============================== VIEW / COORDS ============================== */
 function applyViewBox(){
   const v = state.viewBox;
@@ -844,11 +864,30 @@ function renderGrid(){
   gridLayer.appendChild(g);
 }
 
+const DEFAULT_ROOM_COLOR = "#2563eb", DEFAULT_ROOM_OPACITY = 0.07;
+function hexToRgba(hex, alpha){
+  const h = hex.replace("#","");
+  const r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+function getRoomStyle(roomId){
+  const s = state.roomStyles[roomId];
+  return { color: (s && s.color) || DEFAULT_ROOM_COLOR, opacity: (s && s.opacity!=null) ? s.opacity : DEFAULT_ROOM_OPACITY };
+}
 function renderAreas(){
   clearNode(areaLayer);
   for (const r of (state.enclosedRooms||[])){
+    const roomId = roomIdFor(r);
+    const style = getRoomStyle(roomId);
+    const isSelected = selection.type === "room" && selection.ids.includes(roomId);
     const ptsStr = r.points.map(p=>`${p.x},${p.y}`).join(" ");
-    areaLayer.appendChild(el("polygon", { points:ptsStr, fill:"rgba(37,99,235,0.07)", stroke:"rgba(37,99,235,0.4)", "stroke-width":1, "stroke-dasharray":"5 4", "pointer-events":"none" }));
+    areaLayer.appendChild(el("polygon", {
+      points:ptsStr, fill: hexToRgba(style.color, style.opacity),
+      stroke: isSelected ? "#2563eb" : "rgba(37,99,235,0.4)",
+      "stroke-width": isSelected ? 2.5 : 1,
+      "stroke-dasharray": isSelected ? null : "5 4",
+      "pointer-events":"none"
+    }));
     const sqm = r.areaCm2/10000;
     const fs = Math.max(11, Math.min(22, Math.sqrt(r.areaCm2)*0.09));
     const label = el("text", { x:r.centroid.x, y:r.centroid.y, "text-anchor":"middle", "font-size":fs, "font-weight":700, fill:"#1e3a8a", "pointer-events":"none", opacity:0.85 });
@@ -1271,6 +1310,7 @@ function renderInspector(){
   if (selection.type === "wall" && selection.ids.length === 1){ renderWallInspector(); return; }
   if (selection.type === "wall" && selection.ids.length > 1){ renderWallGroupInspector(); return; }
   if (selection.type === "pillar"){ renderPillarInspector(); return; }
+  if (selection.type === "room"){ renderRoomInspector(); return; }
 
   const s1 = document.createElement("div"); s1.className = "stat-row";
   s1.innerHTML = `<span>OK items</span><b style="color:var(--ok)">${okCount}</b>`;
@@ -1561,6 +1601,48 @@ function renderPillarInspector(){
     clearSelection(); recomputeCollisions(); renderAll(); saveLocal();
   };
   wrap.appendChild(btnReset); wrap.appendChild(btnDup); wrap.appendChild(btnDel);
+  inspector.appendChild(wrap);
+}
+
+function renderRoomInspector(){
+  const roomId = selection.ids[0];
+  const room = (state.enclosedRooms||[]).find(r => roomIdFor(r) === roomId);
+  if (!room){ clearSelection(); renderInspector(); return; }
+  const sqm = room.areaCm2/10000;
+  const areaOk = sqm >= 8;
+  const wc = roomWindowCheck(room);
+  const style = getRoomStyle(roomId);
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `
+    <div class="stat-row"><span>Area</span><b>${sqm.toFixed(2)} m² <span class="badge ${areaOk?"ok":"bad"}">${areaOk?"≥ 8m²":"< 8m² min"}</span></b></div>
+    <div class="stat-row"><span>Window distance</span><b>${wc.hasWindow ? (wc.maxDist/100).toFixed(2)+" m" : "no window"} <span class="badge ${wc.ok?"ok":"bad"}">${wc.hasWindow ? (wc.ok?"≤ 9m":"> 9m max") : "no window"}</span></b></div>
+  `;
+  const rowColor = document.createElement("div"); rowColor.className = "field-row";
+  const colorLabel = document.createElement("label"); colorLabel.textContent = "Fill colour";
+  const colorInput = document.createElement("input"); colorInput.type = "color"; colorInput.value = style.color;
+  colorInput.addEventListener("input", ()=>{
+    state.roomStyles[roomId] = Object.assign({}, getRoomStyle(roomId), { color: colorInput.value });
+    renderAreas();
+  });
+  colorInput.addEventListener("change", ()=>{ pushHistory(); saveLocal(); });
+  rowColor.appendChild(colorLabel); rowColor.appendChild(colorInput);
+  wrap.appendChild(rowColor);
+
+  const rowOpacity = document.createElement("div"); rowOpacity.className = "field-row";
+  const opacityLabel = document.createElement("label"); opacityLabel.textContent = "Transparency";
+  const opacityInput = document.createElement("input");
+  opacityInput.type = "range"; opacityInput.min = "0"; opacityInput.max = "1"; opacityInput.step = "0.01"; opacityInput.value = style.opacity;
+  opacityInput.addEventListener("input", ()=>{
+    state.roomStyles[roomId] = Object.assign({}, getRoomStyle(roomId), { opacity: parseFloat(opacityInput.value) });
+    renderAreas();
+  });
+  opacityInput.addEventListener("change", ()=>{ pushHistory(); saveLocal(); });
+  rowOpacity.appendChild(opacityLabel); rowOpacity.appendChild(opacityInput);
+  wrap.appendChild(rowOpacity);
+
+  const btnReset = document.createElement("button"); btnReset.className = "btn"; btnReset.textContent = "⭯ Reset to default style";
+  btnReset.onclick = ()=>{ pushHistory(); delete state.roomStyles[roomId]; renderAll(); saveLocal(); };
+  wrap.appendChild(btnReset);
   inspector.appendChild(wrap);
 }
 
@@ -1894,7 +1976,7 @@ document.getElementById("zoomReset").onclick = ()=>{
 
 document.getElementById("btnNew").onclick = ()=>{
   if (!confirm("Start a new project? This clears the current floor plan, furniture and walls.")) return;
-  state = { imageDataUrl:null, imageNaturalW:0, imageNaturalH:0, imageScale:1, calibrated:false, furniture:[], pillars:[], walls:[], enclosedRooms:[], viewBox:{x:0,y:0,w:500,h:400}, showGrid:true, snap:true };
+  state = { imageDataUrl:null, imageNaturalW:0, imageNaturalH:0, imageScale:1, calibrated:false, furniture:[], pillars:[], walls:[], enclosedRooms:[], roomStyles:{}, viewBox:{x:0,y:0,w:500,h:400}, showGrid:true, snap:true };
   clearSelection(); history=[]; redoStack=[]; clipboard=null;
   applyViewBox(); updateCalibStatus(); renderAll(); saveLocal();
 };
@@ -1942,7 +2024,7 @@ fileInputJson.addEventListener("change", (e)=>{
   reader.onload = ()=>{
     try {
       const data = JSON.parse(reader.result);
-      state = Object.assign({ showGrid:true, snap:true, pillars:[], enclosedRooms:[] }, data);
+      state = Object.assign({ showGrid:true, snap:true, pillars:[], enclosedRooms:[], roomStyles:{} }, data);
       clearSelection(); history=[]; redoStack=[]; clipboard=null;
       applyViewBox(); updateCalibStatus(); recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
     } catch(err){ alert("Could not read that project file."); }
@@ -2536,9 +2618,13 @@ function onPointerUp(e){
           : newComposites;
         finalizeSelection(finalComposites);
       }
+    } else {
+      // a plain click (no drag) on empty floor -- select the enclosed room under the cursor, if any
+      const room = roomAt(pos);
+      if (room) selection = { type:"room", ids:[roomIdFor(room)] };
     }
     clearNode(overlayLayer);
-    renderHandles(); renderInspector();
+    renderAreas(); renderHandles(); renderInspector();
   } else if (drag && drag.type !== "pan"){
     saveLocal();
   }
@@ -2562,7 +2648,7 @@ function onKeyDown(e){
     setMode("select");
     clearSelection(); renderHandles(); renderInspector();
   }
-  if ((e.key === "Delete" || e.key === "Backspace") && selection.type){
+  if ((e.key === "Delete" || e.key === "Backspace") && selection.type && selection.type !== "room"){
     e.preventDefault();
     pushHistory();
     if (selection.type === "furniture") state.furniture = state.furniture.filter(x=>!selection.ids.includes(x.id));
@@ -2641,7 +2727,7 @@ function loadLocal(){
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return false;
     const data = JSON.parse(raw);
-    state = Object.assign({ showGrid:true, snap:true, pillars:[], enclosedRooms:[] }, data);
+    state = Object.assign({ showGrid:true, snap:true, pillars:[], enclosedRooms:[], roomStyles:{} }, data);
     return true;
   } catch(err){ return false; }
 }
