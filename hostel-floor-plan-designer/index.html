@@ -270,6 +270,7 @@
         <label>Pillar size (cm)</label>
         <input type="number" id="pillarSize" value="25" min="10" max="80" step="1">
       </div>
+      <button class="tool-btn" id="btnMeasureTool">📐 Measure Distance (drag)</button>
 
       <div class="panel-title">View</div>
       <div class="field-row"><label>Show grid</label><input type="checkbox" id="chkGrid" checked></div>
@@ -385,6 +386,7 @@ let clipboard = null;
 let mode = "select"; // select | wall | pillar | calibrate
 let wallDraft = null; // {x,y} last point while drawing a wall chain
 let calibPoints = [];
+let measureDraft = null; // {x,y} drag-start point while measuring
 let spaceHeld = false;
 let uidCounter = 1;
 function uid(){ return "o" + (uidCounter++) + "_" + Math.random().toString(36).slice(2,7); }
@@ -1733,10 +1735,12 @@ function setMode(newMode){
   mode = newMode;
   wallDraft = null;
   calibPoints = [];
+  measureDraft = null;
   clearNode(overlayLayer);
   document.getElementById("btnWallTool").classList.toggle("active", newMode==="wall");
   document.getElementById("btnPillarTool").classList.toggle("active", newMode==="pillar");
   document.getElementById("btnCalibrate").classList.toggle("active", newMode==="calibrate");
+  document.getElementById("btnMeasureTool").classList.toggle("active", newMode==="measure");
   if (newMode === "select") hideHint();
 }
 
@@ -1784,6 +1788,12 @@ document.getElementById("btnPillarTool").onclick = ()=>{
   if (mode === "pillar"){ setMode("select"); return; }
   setMode("pillar");
   showHint("Pillar tool: click the canvas to drop a pillar. Click the button again to stop.");
+};
+
+document.getElementById("btnMeasureTool").onclick = ()=>{
+  if (mode === "measure"){ setMode("select"); return; }
+  setMode("measure");
+  showHint("Measure tool: drag from one point to another to see the distance. Click the button again to stop.");
 };
 
 document.getElementById("chkGrid").onchange = e=>{ state.showGrid = e.target.checked; renderGrid(); };
@@ -2154,6 +2164,13 @@ function onPointerDown(e){
   const pos = screenToWorld(e);
   const targetEl = e.target;
 
+  if (mode === "measure"){
+    measureDraft = pos;
+    renderMeasurePreview(measureDraft, pos);
+    e.preventDefault();
+    return;
+  }
+
   if (mode === "calibrate"){
     calibPoints.push(pos);
     drawCalibMarkers();
@@ -2321,6 +2338,9 @@ function onPointerMove(e){
     const nearJoin = nearestWallEndpoint(movePos, null);
     renderWallPreview(nearJoin || snapWallPoint(wallDraft, movePos, e.shiftKey), !!nearJoin);
   }
+  if (mode === "measure" && measureDraft){
+    renderMeasurePreview(measureDraft, screenToWorld(e));
+  }
   if (!drag) return;
   const pos = screenToWorld(e);
   switch(drag.type){
@@ -2460,6 +2480,7 @@ function onPointerUp(e){
   }
   drag = null;
   if (mode === "wall" && wallDraft) renderWallPreview(null);
+  if (mode === "measure" && measureDraft) measureDraft = null; // keep the finished measurement on screen until the next drag or a mode change
 }
 
 function onDblClick(){
@@ -2497,6 +2518,24 @@ function onKeyDown(e){
 }
 function onKeyUp(e){
   if (e.code === "Space") spaceHeld = false;
+}
+
+function formatDistance(cm){
+  return cm >= 100 ? (cm/100).toFixed(2) + " m (" + Math.round(cm) + " cm)" : Math.round(cm) + " cm";
+}
+function renderMeasurePreview(start, end){
+  clearNode(overlayLayer);
+  const dist = Math.hypot(end.x-start.x, end.y-start.y);
+  overlayLayer.appendChild(el("line", { x1:start.x, y1:start.y, x2:end.x, y2:end.y, stroke:"#db2777", "stroke-width":2, "stroke-dasharray":"6 4" }));
+  overlayLayer.appendChild(el("circle", { cx:start.x, cy:start.y, r:4.5, fill:"#db2777", stroke:"#fff", "stroke-width":1.2 }));
+  overlayLayer.appendChild(el("circle", { cx:end.x, cy:end.y, r:4.5, fill:"#db2777", stroke:"#fff", "stroke-width":1.2 }));
+  const label = el("text", {
+    x:(start.x+end.x)/2, y:(start.y+end.y)/2 - 8, "text-anchor":"middle",
+    "font-size":13, "font-weight":700, fill:"#db2777",
+    stroke:"#fff", "stroke-width":3, "paint-order":"stroke"
+  });
+  label.textContent = formatDistance(dist);
+  overlayLayer.appendChild(label);
 }
 
 function drawCalibMarkers(){
