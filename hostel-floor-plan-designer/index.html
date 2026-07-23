@@ -272,7 +272,7 @@
         <div class="row"><span class="swatch-dot" style="background:#cbd5e1;border:1.5px solid #475569"></span> Pillar (also blocks overlap)</div>
         <div class="row"><span class="swatch-dot" style="background:rgba(37,99,235,0.15);border:1.5px dashed #2563eb"></span> Enclosed room area</div>
       </div>
-      <div class="tip">Tip: shift-click or drag a box on empty floor to multi-select furniture, then drag any selected item to move the whole group. Ctrl+C / Ctrl+V (or the header buttons) copy-paste the selection. Scroll to pan the plan, Ctrl+scroll (or pinch) to zoom — or hold Space / middle-drag to pan. Drawing a wall snaps to clean 0°/45°/90° angles near a corner; hold Shift for a free angle.</div>
+      <div class="tip">Tip: shift-click or drag a box on empty floor to multi-select furniture, then drag any selected item to move the whole group. Ctrl+C / Ctrl+V (or the header buttons) copy-paste the selection. Scroll to pan the plan (hold Shift to scroll left/right), Ctrl+scroll (or pinch) to zoom — or hold Space / middle-drag to pan. Drawing a wall snaps to clean 0°/45°/90° angles near a corner; hold Shift for a free angle.</div>
 
       <details class="ref">
         <summary>Minimum size reference</summary>
@@ -1987,8 +1987,15 @@ function onWheel(e){
     zoomBy(e.deltaY < 0 ? 0.9 : 1/0.9, pos);
     return;
   }
+  let dx = e.deltaX, dy = e.deltaY;
+  if (e.shiftKey && dx === 0){
+    // some mice only ever report vertical wheel motion; while Shift is held,
+    // treat that motion as a left/right pan instead (matches browsers that
+    // already remap shift+wheel to deltaX on trackpads).
+    dx = dy; dy = 0;
+  }
   const p0 = screenToWorld(e);
-  const p1 = screenToWorld({ clientX: e.clientX + e.deltaX, clientY: e.clientY + e.deltaY });
+  const p1 = screenToWorld({ clientX: e.clientX + dx, clientY: e.clientY + dy });
   state.viewBox.x += (p1.x - p0.x);
   state.viewBox.y += (p1.y - p0.y);
   applyViewBox();
