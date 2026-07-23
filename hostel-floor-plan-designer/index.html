@@ -304,6 +304,7 @@
           <tr><td>WC front clearance (in cubicle)</td><td>≥ 70 × 60 cm, kept clear</td></tr>
           <tr><td>WC circulation (outside cubicle)</td><td>≥ 70 × 60 cm, kept clear</td></tr>
           <tr><td>En-suite WC side clearance</td><td>15–20 cm to wall/vanity</td></tr>
+          <tr><td>Max distance to window</td><td>≤ 9 m (900 cm), any point in room</td></tr>
         </table>
       </details>
     </div>
@@ -620,6 +621,36 @@ function computeEnclosedRooms(){
   return rooms;
 }
 function recomputeAreas(){ state.enclosedRooms = computeEnclosedRooms(); }
+
+/* No part of a habitable room may be more than 9m (900cm) from a qualifying external window. */
+const MAX_WINDOW_DIST_CM = 900;
+function wallContainsPoint(w, p, eps){
+  const cp = closestPointOnSegment(p.x, p.y, w.x1, w.y1, w.x2, w.y2);
+  return Math.hypot(p.x-cp.x, p.y-cp.y) < eps;
+}
+function roomWindowCheck(room){
+  const pts = room.points;
+  const eps = 3;
+  const windowSegs = [];
+  for (let i=0;i<pts.length;i++){
+    const a = pts[i], b = pts[(i+1)%pts.length];
+    // a room edge may only be part of a wall (walls get split at T-junction nodes), so match
+    // by both endpoints lying on the wall's line rather than requiring exact wall endpoints
+    const w = state.walls.find(w => w.hasWindow && wallContainsPoint(w,a,eps) && wallContainsPoint(w,b,eps));
+    if (w) windowSegs.push(w);
+  }
+  if (!windowSegs.length) return { hasWindow:false, maxDist:Infinity, ok:false };
+  let maxDist = 0;
+  for (const p of pts){
+    let minDist = Infinity;
+    for (const w of windowSegs){
+      const cp = closestPointOnSegment(p.x, p.y, w.x1, w.y1, w.x2, w.y2);
+      minDist = Math.min(minDist, Math.hypot(p.x-cp.x, p.y-cp.y));
+    }
+    maxDist = Math.max(maxDist, minDist);
+  }
+  return { hasWindow:true, maxDist, ok: maxDist <= MAX_WINDOW_DIST_CM };
+}
 
 /* ============================== VIEW / COORDS ============================== */
 function applyViewBox(){
@@ -1249,6 +1280,13 @@ function renderInspector(){
       const row = document.createElement("div"); row.className = "stat-row";
       row.innerHTML = `<span>${rooms.length>1?"Room "+(i+1):"Room area"}</span><b>${sqm.toFixed(2)} m² <span class="badge ${ok?"ok":"bad"}">${ok?"≥ 8m²":"< 8m² min"}</span></b>`;
       inspector.appendChild(row);
+
+      const wc = roomWindowCheck(r);
+      const wcRow = document.createElement("div"); wcRow.className = "stat-row";
+      const wcLabel = wc.hasWindow ? (wc.maxDist/100).toFixed(2)+" m to window" : "No external window";
+      const wcBadgeText = wc.hasWindow ? (wc.ok ? "≤ 9m" : "> 9m max") : "no window";
+      wcRow.innerHTML = `<span>${rooms.length>1?"Room "+(i+1)+" window":"Window distance"}</span><b>${wcLabel} <span class="badge ${wc.ok?"ok":"bad"}">${wcBadgeText}</span></b>`;
+      inspector.appendChild(wcRow);
     });
   }
 
