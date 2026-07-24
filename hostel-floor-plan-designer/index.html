@@ -665,7 +665,12 @@ function wallContainsPoint(w, p, eps){
   const cp = closestPointOnSegment(p.x, p.y, w.x1, w.y1, w.x2, w.y2);
   return Math.hypot(p.x-cp.x, p.y-cp.y) < eps;
 }
+function roomHasToilet(room){
+  // WCs/bathrooms are commonly exempt from the "habitable room needs a window" rule
+  return state.furniture.some(f => (f.type === "toilet" || f.type === "ensuite") && pointInPolygon({x:f.cx,y:f.cy}, room.points));
+}
 function roomWindowCheck(room){
+  if (roomHasToilet(room)) return { hasWindow:true, maxDist:0, ok:true, exempt:true };
   const pts = room.points;
   const eps = 3;
   const windowSegs = [];
@@ -1375,8 +1380,8 @@ function renderInspector(){
 
       const wc = roomWindowCheck(r);
       const wcRow = document.createElement("div"); wcRow.className = "stat-row";
-      const wcLabel = wc.hasWindow ? (wc.maxDist/100).toFixed(2)+" m to window" : "No external window";
-      const wcBadgeText = wc.hasWindow ? (wc.ok ? "≤ 9m" : "> 9m max") : "no window";
+      const wcLabel = wc.exempt ? "WC — exempt" : wc.hasWindow ? (wc.maxDist/100).toFixed(2)+" m to window" : "No external window";
+      const wcBadgeText = wc.exempt ? "exempt" : wc.hasWindow ? (wc.ok ? "≤ 9m" : "> 9m max") : "no window";
       wcRow.innerHTML = `<span>${rooms.length>1?"Room "+(i+1)+" window":"Window distance"}</span><b>${wcLabel} <span class="badge ${wc.ok?"ok":"bad"}">${wcBadgeText}</span></b>`;
       inspector.appendChild(wcRow);
     });
@@ -1672,7 +1677,7 @@ function renderRoomInspector(){
   const wrap = document.createElement("div");
   wrap.innerHTML = `
     <div class="stat-row"><span>Area</span><b>${sqm.toFixed(2)} m² <span class="badge ${areaOk?"ok":"bad"}">${areaOk?"≥ 8m²":"< 8m² min"}</span></b></div>
-    <div class="stat-row"><span>Window distance</span><b>${wc.hasWindow ? (wc.maxDist/100).toFixed(2)+" m" : "no window"} <span class="badge ${wc.ok?"ok":"bad"}">${wc.hasWindow ? (wc.ok?"≤ 9m":"> 9m max") : "no window"}</span></b></div>
+    <div class="stat-row"><span>Window distance</span><b>${wc.exempt ? "WC — exempt" : wc.hasWindow ? (wc.maxDist/100).toFixed(2)+" m" : "no window"} <span class="badge ${wc.ok?"ok":"bad"}">${wc.exempt ? "exempt" : wc.hasWindow ? (wc.ok?"≤ 9m":"> 9m max") : "no window"}</span></b></div>
   `;
   const rowColor = document.createElement("div"); rowColor.className = "field-row";
   const colorLabel = document.createElement("label"); colorLabel.textContent = "Fill colour";
