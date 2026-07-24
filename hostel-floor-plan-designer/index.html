@@ -284,8 +284,8 @@
 
       <div class="panel-title">Legend</div>
       <div class="legend">
-        <div class="row"><span class="swatch-dot" style="background:var(--ok-fill);border:1.5px solid var(--ok)"></span> No overlap (OK to place)</div>
-        <div class="row"><span class="swatch-dot" style="background:var(--bad-fill);border:1.5px solid var(--bad)"></span> Overlapping — move it</div>
+        <div class="row"><span class="swatch-dot" style="background:#cbd5e1;border:1.5px solid #475569"></span> No overlap (OK to place)</div>
+        <div class="row"><span class="swatch-dot" style="background:var(--bad-fill);border:1.5px solid var(--bad)"></span> Overlapping — move it (red)</div>
         <div class="row"><span class="swatch-dot" style="background:#bfdbfe;border:1.5px dashed #2563eb"></span> Wall with window</div>
         <div class="row"><span class="swatch-dot" style="background:#cbd5e1;border:1.5px solid #475569"></span> Pillar (also blocks overlap)</div>
         <div class="row"><span class="swatch-dot" style="background:rgba(37,99,235,0.15);border:1.5px dashed #2563eb"></span> Enclosed room area</div>
@@ -360,6 +360,7 @@
 
 /* ============================== SPECS ============================== */
 const DEFAULT_FURNITURE_COLOR = "#1e40af"; // dark blue
+const DEFAULT_WALL_COLOR = "#cbd5e1", DEFAULT_WALL_STROKE = "#475569"; // grey, matches pillars
 const SPECS = {
   bed:    { label:"Bed",          w:81,  h:203, minW:81, minH:203, color:DEFAULT_FURNITURE_COLOR },
   desk:   { label:"Desk",         w:120, h:60,  minW:90, minH:60,  color:DEFAULT_FURNITURE_COLOR },
@@ -905,7 +906,7 @@ function renderGrid(){
   gridLayer.appendChild(g);
 }
 
-const DEFAULT_ROOM_COLOR = "#2563eb", DEFAULT_ROOM_OPACITY = 0.07;
+const DEFAULT_ROOM_COLOR = "#2563eb", DEFAULT_ROOM_OPACITY = 0.20;
 function hexToRgba(hex, alpha){
   const h = hex.replace("#","");
   const r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16);
@@ -972,7 +973,8 @@ function renderWalls(){
     for (const s of segs){
       g.appendChild(el("rect", {
         x:s.lo, y:-w.thickness/2, width:(s.hi-s.lo), height:w.thickness,
-        fill: fillFor(w.overlapping), stroke: strokeFor(w.overlapping), "stroke-width":1,
+        fill: w.overlapping ? fillFor(true) : DEFAULT_WALL_COLOR,
+        stroke: w.overlapping ? strokeFor(true) : DEFAULT_WALL_STROKE, "stroke-width":1,
         class:"hit wall-seg"
       }));
     }
