@@ -495,6 +495,13 @@ function obbOverlap(a, b){
 }
 function wallLength(w){ return Math.hypot(w.x2-w.x1, w.y2-w.y1); }
 function wallAngle(w){ return Math.atan2(w.y2-w.y1, w.x2-w.x1) * 180/Math.PI; }
+function setWallLength(w, newLen){
+  const dx = w.x2-w.x1, dy = w.y2-w.y1;
+  const len = Math.hypot(dx,dy);
+  const ux = len>1e-6 ? dx/len : 1, uy = len>1e-6 ? dy/len : 0;
+  w.x2 = w.x1 + ux*newLen;
+  w.y2 = w.y1 + uy*newLen;
+}
 function wallRectParams(w){
   return { cx:(w.x1+w.x2)/2, cy:(w.y1+w.y2)/2, w:wallLength(w), h:w.thickness, rot:wallAngle(w) };
 }
@@ -1792,9 +1799,14 @@ function renderWallInspector(){
   if (!w){ clearSelection(); renderInspector(); return; }
   const wrap = document.createElement("div");
   wrap.innerHTML = `
-    <div class="stat-row"><span>Length</span><b>${Math.round(wallLength(w))} cm</b></div>
     <div class="stat-row"><span>Status</span><span class="badge ${w.overlapping?"bad":"ok"}">${w.overlapping?"overlap":"ok"}</span></div>
   `;
+  const rowLen = fieldRow("Length (cm)", wallLength(w), 10, 3000, v=>{
+    pushHistory();
+    setWallLength(w, v);
+    recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
+  });
+  wrap.appendChild(rowLen);
   const presetRow = document.createElement("div"); presetRow.className = "preset-row";
   presetRow.innerHTML = `
     <button class="preset-btn ${Math.abs(w.thickness-10)<0.01?"active":""}" data-thickness="10" title="Lightweight Partition Wall">100mm</button>
