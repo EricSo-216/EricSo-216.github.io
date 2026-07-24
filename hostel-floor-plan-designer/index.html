@@ -1420,8 +1420,12 @@ function renderInspector(){
       const sqm = r.areaCm2/10000;
       const minArea = minAreaSqmForRoom(r);
       const ok = sqm >= minArea;
+      const isBathroom = roomHasToilet(r);
+      const roomLabel = isBathroom
+        ? (rooms.length>1 ? "Bathroom "+(i+1) : "Bathroom area")
+        : (rooms.length>1 ? "Room "+(i+1) : "Room area");
       const row = document.createElement("div"); row.className = "stat-row clickable-row";
-      row.innerHTML = `<span>${rooms.length>1?"Room "+(i+1):"Room area"}</span><b>${sqm.toFixed(2)} m² <span class="badge ${ok?"ok":"bad"}">${ok?"≥ "+minArea+"m²":"< "+minArea+"m² min"}</span><br><span style="font-weight:400;font-size:10.5px;color:var(--ink-60);">(${sqmToSqft(sqm).toFixed(1)} ft²)</span></b>`;
+      row.innerHTML = `<span>${roomLabel}</span><b>${sqm.toFixed(2)} m² <span class="badge ${ok?"ok":"bad"}">${ok?"≥ "+minArea+"m²":"< "+minArea+"m² min"}</span><br><span style="font-weight:400;font-size:10.5px;color:var(--ink-60);">(${sqmToSqft(sqm).toFixed(1)} ft²)</span></b>`;
       row.addEventListener("click", goToRoom);
       inspector.appendChild(row);
 
@@ -1429,7 +1433,7 @@ function renderInspector(){
       const wcRow = document.createElement("div"); wcRow.className = "stat-row clickable-row";
       const wcLabel = wc.exempt ? "WC — exempt" : wc.hasWindow ? (wc.maxDist/100).toFixed(2)+" m to window" : "No external window";
       const wcBadgeText = wc.exempt ? "exempt" : wc.hasWindow ? (wc.ok ? "≤ 9m" : "> 9m max") : "no window";
-      wcRow.innerHTML = `<span>${rooms.length>1?"Room "+(i+1)+" window":"Window distance"}</span><b>${wcLabel} <span class="badge ${wc.ok?"ok":"bad"}">${wcBadgeText}</span></b>`;
+      wcRow.innerHTML = `<span>${rooms.length>1?roomLabel+" window":"Window distance"}</span><b>${wcLabel} <span class="badge ${wc.ok?"ok":"bad"}">${wcBadgeText}</span></b>`;
       wcRow.addEventListener("click", goToRoom);
       inspector.appendChild(wcRow);
     });
