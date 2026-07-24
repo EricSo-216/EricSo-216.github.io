@@ -527,7 +527,28 @@ function meetsMin(type, w, h){
 function computeEnclosedRooms(){
   const NODE_EPS = 3;
   const walls = state.walls;
-  if (walls.length < 3) return [];
+
+  // Pillars act like walls for room-enclosure purposes, but only once a wall actually touches
+  // them — an untouched pillar sitting alone in a room must not fabricate a false enclosure.
+  const pillarSegs = [];
+  for (const p of state.pillars){
+    const corners = rectCorners(p.cx, p.cy, p.w, p.h, p.rot);
+    const touches = walls.some(w => [{x:w.x1,y:w.y1},{x:w.x2,y:w.y2}].some(pt=>{
+      for (let i=0;i<4;i++){
+        const c1 = corners[i], c2 = corners[(i+1)%4];
+        const cp = closestPointOnSegment(pt.x, pt.y, c1.x, c1.y, c2.x, c2.y);
+        if (Math.hypot(pt.x-cp.x, pt.y-cp.y) < NODE_EPS) return true;
+      }
+      return false;
+    }));
+    if (!touches) continue;
+    for (let i=0;i<4;i++){
+      pillarSegs.push({ x1:corners[i].x, y1:corners[i].y, x2:corners[(i+1)%4].x, y2:corners[(i+1)%4].y });
+    }
+  }
+
+  const segs = walls.map(w=>({ x1:w.x1, y1:w.y1, x2:w.x2, y2:w.y2 })).concat(pillarSegs);
+  if (segs.length < 3) return [];
   const nodes = [];
   function findOrAddNode(x, y){
     for (let i=0;i<nodes.length;i++){
@@ -536,9 +557,10 @@ function computeEnclosedRooms(){
     nodes.push({ x, y });
     return nodes.length-1;
   }
-  walls.forEach(w=>{ findOrAddNode(w.x1,w.y1); findOrAddNode(w.x2,w.y2); });
+  segs.forEach(w=>{ findOrAddNode(w.x1,w.y1); findOrAddNode(w.x2,w.y2); });
 
-  // split each wall at any node lying on its interior, so T-junctions / crossings connect correctly
+  // split each segment (wall or pillar edge) at any node lying on its interior, so T-junctions,
+  // crossings, and wall-to-pillar connections all link up correctly
   const edgeSet = new Set();
   const edges = [];
   function addEdge(a,b){
@@ -547,7 +569,7 @@ function computeEnclosedRooms(){
     if (edgeSet.has(key)) return;
     edgeSet.add(key); edges.push({a,b});
   }
-  for (const w of walls){
+  for (const w of segs){
     const dx = w.x2-w.x1, dy = w.y2-w.y1;
     const len = Math.hypot(dx,dy);
     if (len < 1e-6) continue;
@@ -1600,26 +1622,26 @@ function renderPillarInspector(){
     <div class="stat-row"><span>Type</span><b>Pillar</b></div>
     <div class="stat-row"><span>Status</span><span class="badge ${p.overlapping?"bad":"ok"}">${p.overlapping?"overlap":"ok"}</span></div>
   `;
-  const rowW = fieldRow("Width (cm)", p.w, 10, 150, v=>{ pushHistory(); p.w=v; recomputeCollisions(); renderAll(); saveLocal(); });
-  const rowH = fieldRow("Depth (cm)", p.h, 10, 150, v=>{ pushHistory(); p.h=v; recomputeCollisions(); renderAll(); saveLocal(); });
-  const rowR = fieldRow("Rotation (°)", Math.round(p.rot), -359, 359, v=>{ pushHistory(); p.rot=((v%360)+360)%360; recomputeCollisions(); renderAll(); saveLocal(); });
+  const rowW = fieldRow("Width (cm)", p.w, 10, 150, v=>{ pushHistory(); p.w=v; recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal(); });
+  const rowH = fieldRow("Depth (cm)", p.h, 10, 150, v=>{ pushHistory(); p.h=v; recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal(); });
+  const rowR = fieldRow("Rotation (°)", Math.round(p.rot), -359, 359, v=>{ pushHistory(); p.rot=((v%360)+360)%360; recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal(); });
   wrap.appendChild(rowW); wrap.appendChild(rowH); wrap.appendChild(rowR);
 
   const btnReset = document.createElement("button"); btnReset.className = "btn"; btnReset.textContent = "⭯ Reset to default size";
-  btnReset.onclick = ()=>{ pushHistory(); p.w = PILLAR_SPEC.w; p.h = PILLAR_SPEC.h; recomputeCollisions(); renderAll(); saveLocal(); };
+  btnReset.onclick = ()=>{ pushHistory(); p.w = PILLAR_SPEC.w; p.h = PILLAR_SPEC.h; recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal(); };
   const btnDup = document.createElement("button"); btnDup.className = "btn"; btnDup.textContent = "⧉ Duplicate";
   btnDup.onclick = ()=>{
     pushHistory();
     const np = Object.assign({}, p, { id: uid(), cx: p.cx+20, cy: p.cy+20 });
     state.pillars.push(np);
     selection = { type:"pillar", ids:[np.id] };
-    recomputeCollisions(); renderAll(); saveLocal();
+    recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
   };
   const btnDel = document.createElement("button"); btnDel.className = "btn danger"; btnDel.textContent = "✕ Delete pillar";
   btnDel.onclick = ()=>{
     pushHistory();
     state.pillars = state.pillars.filter(x=>x.id!==p.id);
-    clearSelection(); recomputeCollisions(); renderAll(); saveLocal();
+    clearSelection(); recomputeCollisions(); recomputeAreas(); renderAll(); saveLocal();
   };
   wrap.appendChild(btnReset); wrap.appendChild(btnDup); wrap.appendChild(btnDel);
   inspector.appendChild(wrap);
@@ -2583,7 +2605,7 @@ function onPointerMove(e){
       const dx = pos.x - drag.startWorld.x, dy = pos.y - drag.startWorld.y;
       p.cx = snapVal(drag.startCx + dx);
       p.cy = snapVal(drag.startCy + dy);
-      recomputeCollisions(); renderObstacleLayers(); renderHandles();
+      recomputeCollisions(); recomputeAreas(); renderObstacleLayers(); renderAreas(); renderHandles();
       break;
     }
     case "move-wall-group": {
