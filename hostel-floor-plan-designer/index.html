@@ -138,6 +138,11 @@
   .preset-btn:hover { border-color: var(--accent); background: var(--accent-light); }
   .preset-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+  .swatch-row { display: flex; gap: 6px; margin-bottom: 8px; }
+  .swatch-btn { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid rgba(0,0,0,0.15); flex-shrink: 0; }
+  .swatch-btn:hover { transform: scale(1.12); }
+  .swatch-btn.active { border: 2px solid var(--ink); box-shadow: 0 0 0 2px #fff inset; }
+
   .field-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
   .field-row label { font-size: 11.5px; color: var(--ink-60); flex: 1; }
   .field-row input[type=number], .field-row select {
@@ -354,15 +359,16 @@
 "use strict";
 
 /* ============================== SPECS ============================== */
+const DEFAULT_FURNITURE_COLOR = "#1e40af"; // dark blue
 const SPECS = {
-  bed:    { label:"Bed",          w:81,  h:203, minW:81, minH:203, color:"#8ecae6" },
-  desk:   { label:"Desk",         w:120, h:60,  minW:90, minH:60,  color:"#ffb703" },
-  chair:  { label:"Chair",        w:45,  h:45,  minW:40, minH:40,  color:"#c8b6ff" },
-  closet: { label:"Closet",       w:60,  h:60,  minW:60, minH:60,  color:"#fb8500" },
-  toilet: { label:"Toilet Cubicle", w:80, h:150, minW:70, minH:120, color:"#adb5bd" },
-  ensuite:{ label:"En-suite (WC+Basin+Shower)", w:200, h:180, minW:160, minH:160, color:"#7fb3a8" },
-  shower: { label:"Shower",       w:90,  h:90,  minW:90, minH:90,  color:"#90e0ef" },
-  basin:  { label:"Basin",        w:60,  h:75,  minW:50, minH:75,  color:"#caf0f8" },
+  bed:    { label:"Bed",          w:81,  h:203, minW:81, minH:203, color:DEFAULT_FURNITURE_COLOR },
+  desk:   { label:"Desk",         w:120, h:60,  minW:90, minH:60,  color:DEFAULT_FURNITURE_COLOR },
+  chair:  { label:"Chair",        w:45,  h:45,  minW:40, minH:40,  color:DEFAULT_FURNITURE_COLOR },
+  closet: { label:"Closet",       w:60,  h:60,  minW:60, minH:60,  color:DEFAULT_FURNITURE_COLOR },
+  toilet: { label:"Toilet Cubicle", w:80, h:150, minW:70, minH:120, color:DEFAULT_FURNITURE_COLOR },
+  ensuite:{ label:"En-suite (WC+Basin+Shower)", w:200, h:180, minW:160, minH:160, color:DEFAULT_FURNITURE_COLOR },
+  shower: { label:"Shower",       w:90,  h:90,  minW:90, minH:90,  color:DEFAULT_FURNITURE_COLOR },
+  basin:  { label:"Basin",        w:60,  h:75,  minW:50, minH:75,  color:DEFAULT_FURNITURE_COLOR },
 };
 const PILLAR_SPEC = { label:"Pillar", w:25, h:25, color:"#94a3b8" };
 const DOOR_WIDTH_CM = 85; // fixed door width, not user-adjustable
@@ -1107,14 +1113,15 @@ function renderFurniture(){
     const g = el("g", { transform:`translate(${f.cx},${f.cy}) rotate(${f.rot})`, "data-id":f.id, "data-kind":"furniture", class:"furniture-group" });
     g.appendChild(el("rect", {
       x:-f.w/2, y:-f.h/2, width:f.w, height:f.h, rx:4,
-      fill: fillFor(f.overlapping), stroke: strokeFor(f.overlapping), "stroke-width":1.4,
+      fill: f.overlapping ? fillFor(true) : spec.color, stroke: strokeFor(f.overlapping), "stroke-width":1.4,
       class:"hit"
     }));
     decorateFurniture(g, f.type, f.w, f.h);
     const fs = Math.max(7, Math.min(13, Math.min(f.w,f.h)*0.14));
-    const label = el("text", { x:0, y:-2, "text-anchor":"middle", "font-size":fs, "font-weight":700, fill:"#0f172a", "pointer-events":"none" });
+    const textFill = f.overlapping ? "#0f172a" : "#ffffff";
+    const label = el("text", { x:0, y:-2, "text-anchor":"middle", "font-size":fs, "font-weight":700, fill:textFill, "pointer-events":"none" });
     label.textContent = furnitureDisplayLabel(f, spec);
-    const dims = el("text", { x:0, y:fs+2, "text-anchor":"middle", "font-size":fs*0.82, fill:"#0f172a", "pointer-events":"none", opacity:0.75 });
+    const dims = el("text", { x:0, y:fs+2, "text-anchor":"middle", "font-size":fs*0.82, fill:textFill, "pointer-events":"none", opacity:0.75 });
     dims.textContent = Math.round(f.w)+"×"+Math.round(f.h)+" cm";
     g.appendChild(label); g.appendChild(dims);
     if (selection.type==="furniture" && selection.ids.includes(f.id)) g.setAttribute("opacity", "1");
@@ -1677,6 +1684,25 @@ function renderRoomInspector(){
   colorInput.addEventListener("change", ()=>{ pushHistory(); saveLocal(); });
   rowColor.appendChild(colorLabel); rowColor.appendChild(colorInput);
   wrap.appendChild(rowColor);
+
+  const swatches = [
+    { name:"Red", hex:"#ef4444" }, { name:"Orange", hex:"#f97316" }, { name:"Yellow", hex:"#eab308" },
+    { name:"Green", hex:"#16a34a" }, { name:"Blue", hex:"#2563eb" }, { name:"Purple", hex:"#9333ea" },
+    { name:"Grey", hex:"#6b7280" },
+  ];
+  const swatchRow = document.createElement("div"); swatchRow.className = "swatch-row";
+  for (const s of swatches){
+    const btn = document.createElement("button"); btn.className = "swatch-btn";
+    btn.style.background = s.hex; btn.title = s.name;
+    if (style.color.toLowerCase() === s.hex) btn.classList.add("active");
+    btn.onclick = ()=>{
+      pushHistory();
+      state.roomStyles[roomId] = Object.assign({}, getRoomStyle(roomId), { color: s.hex });
+      renderAreas(); renderInspector(); saveLocal();
+    };
+    swatchRow.appendChild(btn);
+  }
+  wrap.appendChild(swatchRow);
 
   const rowOpacity = document.createElement("div"); rowOpacity.className = "field-row";
   const opacityLabel = document.createElement("label"); opacityLabel.textContent = "Transparency";
