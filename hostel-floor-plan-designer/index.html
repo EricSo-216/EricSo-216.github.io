@@ -524,8 +524,9 @@ function recomputeCollisions(){
     for (let j=i+1;j<items.length;j++){
       const A = items[i], B = items[j];
       if (A.kind==="wall" && B.kind==="wall" && areWallsAdjacent(A.ref,B.ref)) continue;
-      if (A.kind==="wall" && B.kind==="pillar" && wallTouchesPillar(A.ref,B.ref,3)) continue;
-      if (A.kind==="pillar" && B.kind==="wall" && wallTouchesPillar(B.ref,A.ref,3)) continue;
+      // a pillar embedded within a wall run is normal construction -- walls and pillars never
+      // flag each other as overlapping, whether just touching at an edge or fully crossing
+      if ((A.kind==="wall" && B.kind==="pillar") || (A.kind==="pillar" && B.kind==="wall")) continue;
       if (obbOverlap(A.rect, B.rect)){
         A.ref.overlapping = true; B.ref.overlapping = true;
       }
