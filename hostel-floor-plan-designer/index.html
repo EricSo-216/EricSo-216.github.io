@@ -502,6 +502,18 @@ function areWallsAdjacent(w1, w2){
          pointNearSegment(w2.x1,w2.y1, w1.x1,w1.y1,w1.x2,w1.y2, tol) ||
          pointNearSegment(w2.x2,w2.y2, w1.x1,w1.y1,w1.x2,w1.y2, tol);
 }
+function wallTouchesPillar(w, p, tol){
+  // true when either end of the wall lands on (or very near) one of the pillar's 4 edges --
+  // the same definition used to let the pillar's faces close off an enclosed room
+  const corners = rectCorners(p.cx, p.cy, p.w, p.h, p.rot);
+  for (const pt of [{x:w.x1,y:w.y1},{x:w.x2,y:w.y2}]){
+    for (let i=0;i<4;i++){
+      const c1 = corners[i], c2 = corners[(i+1)%4];
+      if (pointNearSegment(pt.x, pt.y, c1.x, c1.y, c2.x, c2.y, tol)) return true;
+    }
+  }
+  return false;
+}
 function recomputeCollisions(){
   const items = [];
   for (const f of state.furniture) items.push({ ref:f, rect:{cx:f.cx,cy:f.cy,w:f.w,h:f.h,rot:f.rot}, kind:"furniture" });
@@ -512,6 +524,8 @@ function recomputeCollisions(){
     for (let j=i+1;j<items.length;j++){
       const A = items[i], B = items[j];
       if (A.kind==="wall" && B.kind==="wall" && areWallsAdjacent(A.ref,B.ref)) continue;
+      if (A.kind==="wall" && B.kind==="pillar" && wallTouchesPillar(A.ref,B.ref,3)) continue;
+      if (A.kind==="pillar" && B.kind==="wall" && wallTouchesPillar(B.ref,A.ref,3)) continue;
       if (obbOverlap(A.rect, B.rect)){
         A.ref.overlapping = true; B.ref.overlapping = true;
       }
@@ -532,16 +546,8 @@ function computeEnclosedRooms(){
   // them — an untouched pillar sitting alone in a room must not fabricate a false enclosure.
   const pillarSegs = [];
   for (const p of state.pillars){
+    if (!walls.some(w => wallTouchesPillar(w, p, NODE_EPS))) continue;
     const corners = rectCorners(p.cx, p.cy, p.w, p.h, p.rot);
-    const touches = walls.some(w => [{x:w.x1,y:w.y1},{x:w.x2,y:w.y2}].some(pt=>{
-      for (let i=0;i<4;i++){
-        const c1 = corners[i], c2 = corners[(i+1)%4];
-        const cp = closestPointOnSegment(pt.x, pt.y, c1.x, c1.y, c2.x, c2.y);
-        if (Math.hypot(pt.x-cp.x, pt.y-cp.y) < NODE_EPS) return true;
-      }
-      return false;
-    }));
-    if (!touches) continue;
     for (let i=0;i<4;i++){
       pillarSegs.push({ x1:corners[i].x, y1:corners[i].y, x2:corners[(i+1)%4].x, y2:corners[(i+1)%4].y });
     }
