@@ -297,8 +297,10 @@
       <details class="ref">
         <summary>Minimum size reference</summary>
         <table>
-          <tr><td>Room (single)</td><td>≥ 8 m²</td></tr>
-          <tr><td>Room (twin)</td><td>≥ 14 m²</td></tr>
+          <tr><td>Room (1 bed)</td><td>≥ 8 m²</td></tr>
+          <tr><td>Room (2 beds)</td><td>≥ 10 m²</td></tr>
+          <tr><td>Room (3 beds)</td><td>≥ 12 m²</td></tr>
+          <tr><td>Room (4 beds)</td><td>≥ 25 m²</td></tr>
           <tr><td>Bed</td><td>203 × 81 cm</td></tr>
           <tr><td>Desk</td><td>90–120 × 60 cm</td></tr>
           <tr><td>Chair</td><td>≥ 40 × 40 cm</td></tr>
@@ -662,6 +664,18 @@ function computeEnclosedRooms(){
 }
 function recomputeAreas(){ state.enclosedRooms = computeEnclosedRooms(); }
 
+function sqmToSqft(sqm){ return sqm * 10.7639; }
+function formatAreaLine(sqm){ return sqm.toFixed(2)+" m² ("+sqmToSqft(sqm).toFixed(1)+" ft²)"; }
+
+/* Minimum room area scales with how many beds it holds. */
+const MIN_AREA_SQM_BY_BEDS = { 0:8, 1:8, 2:10, 3:12, 4:25 };
+function roomBedCount(room){
+  return state.furniture.filter(f => f.type==="bed" && pointInPolygon({x:f.cx,y:f.cy}, room.points)).length;
+}
+function minAreaSqmForRoom(room){
+  return MIN_AREA_SQM_BY_BEDS[Math.min(roomBedCount(room), 4)];
+}
+
 /* No part of a habitable room may be more than 9m (900cm) from a qualifying external window. */
 const MAX_WINDOW_DIST_CM = 900;
 function wallContainsPoint(w, p, eps){
@@ -954,6 +968,9 @@ function renderAreas(){
     const label = el("text", { x:r.centroid.x, y:r.centroid.y, "text-anchor":"middle", "font-size":fs, "font-weight":700, fill:"#1e3a8a", "pointer-events":"none", opacity:0.85 });
     label.textContent = sqm.toFixed(2)+" m²";
     areaLayer.appendChild(label);
+    const sqftLabel = el("text", { x:r.centroid.x, y:r.centroid.y+fs*0.95, "text-anchor":"middle", "font-size":fs*0.6, "font-weight":600, fill:"#1e3a8a", "pointer-events":"none", opacity:0.7 });
+    sqftLabel.textContent = "(" + sqmToSqft(sqm).toFixed(1) + " ft²)";
+    areaLayer.appendChild(sqftLabel);
   }
 }
 
@@ -1386,7 +1403,9 @@ function renderInspector(){
   s1.innerHTML = `<span>OK items</span><b style="color:var(--ok)">${okCount}</b>`;
   const s2 = document.createElement("div"); s2.className = "stat-row";
   s2.innerHTML = `<span>Overlapping</span><b style="color:${badCount?"var(--bad)":"var(--ink-60)"}">${badCount}</b>`;
-  inspector.appendChild(s1); inspector.appendChild(s2);
+  const s3 = document.createElement("div"); s3.className = "stat-row";
+  s3.innerHTML = `<span>Total beds</span><b>${state.furniture.filter(f=>f.type==="bed").length}</b>`;
+  inspector.appendChild(s1); inspector.appendChild(s2); inspector.appendChild(s3);
 
   const rooms = state.enclosedRooms || [];
   if (rooms.length){
@@ -1399,9 +1418,10 @@ function renderInspector(){
         renderAreas(); renderHandles(); renderInspector();
       };
       const sqm = r.areaCm2/10000;
-      const ok = sqm >= 8;
+      const minArea = minAreaSqmForRoom(r);
+      const ok = sqm >= minArea;
       const row = document.createElement("div"); row.className = "stat-row clickable-row";
-      row.innerHTML = `<span>${rooms.length>1?"Room "+(i+1):"Room area"}</span><b>${sqm.toFixed(2)} m² <span class="badge ${ok?"ok":"bad"}">${ok?"≥ 8m²":"< 8m² min"}</span></b>`;
+      row.innerHTML = `<span>${rooms.length>1?"Room "+(i+1):"Room area"}</span><b>${sqm.toFixed(2)} m² <span class="badge ${ok?"ok":"bad"}">${ok?"≥ "+minArea+"m²":"< "+minArea+"m² min"}</span><br><span style="font-weight:400;font-size:10.5px;color:var(--ink-60);">(${sqmToSqft(sqm).toFixed(1)} ft²)</span></b>`;
       row.addEventListener("click", goToRoom);
       inspector.appendChild(row);
 
@@ -1699,12 +1719,13 @@ function renderRoomInspector(){
   const room = (state.enclosedRooms||[]).find(r => roomIdFor(r) === roomId);
   if (!room){ clearSelection(); renderInspector(); return; }
   const sqm = room.areaCm2/10000;
-  const areaOk = sqm >= 8;
+  const minArea = minAreaSqmForRoom(room);
+  const areaOk = sqm >= minArea;
   const wc = roomWindowCheck(room);
   const style = getRoomStyle(roomId);
   const wrap = document.createElement("div");
   wrap.innerHTML = `
-    <div class="stat-row"><span>Area</span><b>${sqm.toFixed(2)} m² <span class="badge ${areaOk?"ok":"bad"}">${areaOk?"≥ 8m²":"< 8m² min"}</span></b></div>
+    <div class="stat-row"><span>Area</span><b>${sqm.toFixed(2)} m² <span class="badge ${areaOk?"ok":"bad"}">${areaOk?"≥ "+minArea+"m²":"< "+minArea+"m² min"}</span><br><span style="font-weight:400;font-size:10.5px;color:var(--ink-60);">(${sqmToSqft(sqm).toFixed(1)} ft²)</span></b></div>
     <div class="stat-row"><span>Window distance</span><b>${wc.exempt ? "WC — exempt" : wc.hasWindow ? (wc.maxDist/100).toFixed(2)+" m" : "no window"} <span class="badge ${wc.ok?"ok":"bad"}">${wc.exempt ? "exempt" : wc.hasWindow ? (wc.ok?"≤ 9m":"> 9m max") : "no window"}</span></b></div>
   `;
   const rowColor = document.createElement("div"); rowColor.className = "field-row";
