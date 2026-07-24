@@ -189,6 +189,7 @@
     position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
     background: var(--ink); color: #fff; font-size: 12px; padding: 7px 14px; border-radius: 999px;
     box-shadow: 0 3px 12px rgba(0,0,0,0.2); display: none; white-space: nowrap; z-index: 10;
+    pointer-events: none; /* purely informational -- must not swallow clicks meant for the canvas beneath it */
   }
   .hint-banner.show { display: block; }
   .empty-state {
@@ -279,6 +280,7 @@
         <input type="number" id="pillarSize" value="25" min="10" max="80" step="1">
       </div>
       <button class="tool-btn" id="btnMeasureTool">📐 Measure Distance (drag)</button>
+      <button class="tool-btn" id="btnMeasureAreaTool">⬠ Measure Area (click points)</button>
 
       <div class="panel-title">View</div>
       <div class="field-row"><label>Show grid</label><input type="checkbox" id="chkGrid" checked></div>
@@ -397,10 +399,11 @@ let state = {
 };
 let selection = { type:null, ids:[] };
 let clipboard = null;
-let mode = "select"; // select | wall | pillar | calibrate
+let mode = "select"; // select | wall | pillar | calibrate | measure | measurearea
 let wallDraft = null; // {x,y} last point while drawing a wall chain
 let calibPoints = [];
 let measureDraft = null; // {x,y} drag-start point while measuring
+let areaDraft = null; // [{x,y}, ...] clicked polygon vertices while measuring an area, or null when idle
 let spaceHeld = false;
 let uidCounter = 1;
 function uid(){ return "o" + (uidCounter++) + "_" + Math.random().toString(36).slice(2,7); }
@@ -2022,11 +2025,13 @@ function setMode(newMode){
   wallDraft = null;
   calibPoints = [];
   measureDraft = null;
+  areaDraft = null;
   clearNode(overlayLayer);
   document.getElementById("btnWallTool").classList.toggle("active", newMode==="wall");
   document.getElementById("btnPillarTool").classList.toggle("active", newMode==="pillar");
   document.getElementById("btnCalibrate").classList.toggle("active", newMode==="calibrate");
   document.getElementById("btnMeasureTool").classList.toggle("active", newMode==="measure");
+  document.getElementById("btnMeasureAreaTool").classList.toggle("active", newMode==="measurearea");
   if (newMode === "select") hideHint();
 }
 
@@ -2080,6 +2085,13 @@ document.getElementById("btnMeasureTool").onclick = ()=>{
   if (mode === "measure"){ setMode("select"); return; }
   setMode("measure");
   showHint("Measure tool: drag from one point to another to see the distance. Click the button again to stop.");
+};
+
+document.getElementById("btnMeasureAreaTool").onclick = ()=>{
+  if (mode === "measurearea"){ setMode("select"); return; }
+  setMode("measurearea");
+  areaDraft = [];
+  showHint("Measure Area tool: click each corner of the space in order. Click the first point again (or double-click) to close the shape. Click the button again to stop.");
 };
 
 document.getElementById("chkGrid").onchange = e=>{ state.showGrid = e.target.checked; renderGrid(); };
@@ -2487,6 +2499,26 @@ function onPointerDown(e){
     return;
   }
 
+  if (mode === "measurearea"){
+    if (!areaDraft) areaDraft = [];
+    const near = nearestWallEndpoint(pos, null);
+    const p = near || { x: snapVal(pos.x), y: snapVal(pos.y) };
+    if (areaDraft.length >= 3){
+      const first = areaDraft[0];
+      const screenPxPerWorld = (svg.clientWidth || 800) / state.viewBox.w;
+      const closeThreshold = 14 / screenPxPerWorld;
+      if (Math.hypot(p.x-first.x, p.y-first.y) < closeThreshold){
+        finishAreaMeasurement();
+        e.preventDefault();
+        return;
+      }
+    }
+    areaDraft.push(p);
+    renderAreaMeasurePreview(pos);
+    e.preventDefault();
+    return;
+  }
+
   if (mode === "calibrate"){
     calibPoints.push(pos);
     drawCalibMarkers();
@@ -2657,6 +2689,9 @@ function onPointerMove(e){
   if (mode === "measure" && measureDraft){
     renderMeasurePreview(measureDraft, screenToWorld(e));
   }
+  if (mode === "measurearea" && areaDraft && areaDraft.length){
+    renderAreaMeasurePreview(screenToWorld(e));
+  }
   if (!drag) return;
   const pos = screenToWorld(e);
   switch(drag.type){
@@ -2805,6 +2840,7 @@ function onPointerUp(e){
 
 function onDblClick(){
   if (mode === "wall") setMode("select");
+  if (mode === "measurearea") finishAreaMeasurement();
 }
 
 function onKeyDown(e){
@@ -2856,6 +2892,72 @@ function renderMeasurePreview(start, end){
   });
   label.textContent = formatDistance(dist);
   overlayLayer.appendChild(label);
+}
+
+function polygonAreaAndCentroid(pts){
+  let a2 = 0, cx = 0, cy = 0;
+  for (let i=0;i<pts.length;i++){
+    const p1 = pts[i], p2 = pts[(i+1)%pts.length];
+    const cross = p1.x*p2.y - p2.x*p1.y;
+    a2 += cross;
+    cx += (p1.x+p2.x)*cross;
+    cy += (p1.y+p2.y)*cross;
+  }
+  const area = a2/2;
+  if (Math.abs(area) < 1e-6) return { area:0, cx:pts[0].x, cy:pts[0].y };
+  cx /= (6*area); cy /= (6*area);
+  return { area: Math.abs(area), cx, cy };
+}
+
+function renderAreaMeasurePreview(livePos){
+  clearNode(overlayLayer);
+  if (!areaDraft || !areaDraft.length) return;
+  const pts = areaDraft;
+  for (let i=0;i<pts.length-1;i++){
+    overlayLayer.appendChild(el("line", { x1:pts[i].x, y1:pts[i].y, x2:pts[i+1].x, y2:pts[i+1].y, stroke:"#7c3aed", "stroke-width":2 }));
+  }
+  if (livePos){
+    const last = pts[pts.length-1];
+    overlayLayer.appendChild(el("line", { x1:last.x, y1:last.y, x2:livePos.x, y2:livePos.y, stroke:"#7c3aed", "stroke-width":1.5, "stroke-dasharray":"5 3" }));
+  }
+  pts.forEach((p,i)=>{
+    const isFirst = i===0 && pts.length>=3;
+    overlayLayer.appendChild(el("circle", { cx:p.x, cy:p.y, r: isFirst?7:4.5, fill: isFirst?"#fff":"#7c3aed", stroke:"#7c3aed", "stroke-width":1.8 }));
+  });
+  if (livePos && pts.length >= 2){
+    const { area, cx, cy } = polygonAreaAndCentroid(pts.concat([livePos]));
+    if (area > 100){
+      const label = el("text", {
+        x:cx, y:cy-16, "text-anchor":"middle",
+        "font-size":13, "font-weight":700, fill:"#7c3aed",
+        stroke:"#fff", "stroke-width":3, "paint-order":"stroke"
+      });
+      label.textContent = formatAreaLine(area/10000);
+      overlayLayer.appendChild(label);
+    }
+  }
+}
+
+function finishAreaMeasurement(){
+  const pts = areaDraft;
+  areaDraft = null;
+  clearNode(overlayLayer);
+  if (!pts || pts.length < 3) return;
+  const { area, cx, cy } = polygonAreaAndCentroid(pts);
+  const pointsAttr = pts.map(p=>`${p.x},${p.y}`).join(" ");
+  overlayLayer.appendChild(el("polygon", { points: pointsAttr, fill:"rgba(124,58,237,0.15)", stroke:"#7c3aed", "stroke-width":2 }));
+  pts.forEach(p=>{
+    overlayLayer.appendChild(el("circle", { cx:p.x, cy:p.y, r:4.5, fill:"#7c3aed", stroke:"#fff", "stroke-width":1.2 }));
+  });
+  const label = el("text", {
+    x:cx, y:cy-16, "text-anchor":"middle",
+    "font-size":15, "font-weight":700, fill:"#7c3aed",
+    stroke:"#fff", "stroke-width":3, "paint-order":"stroke"
+  });
+  label.textContent = formatAreaLine(area/10000);
+  overlayLayer.appendChild(label);
+  showHint("Area: " + formatAreaLine(area/10000) + ". Click to start a new measurement, or click the button again to stop.");
+  setTimeout(hideHint, 4000);
 }
 
 function drawCalibMarkers(){
