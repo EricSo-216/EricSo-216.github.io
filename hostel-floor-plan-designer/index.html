@@ -212,6 +212,8 @@
   .badge.bad { background: #fee2e2; color: #991b1b; }
   .stat-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-bottom: 5px; gap: 8px; }
   .stat-row b { font-variant-numeric: tabular-nums; }
+  .clickable-row { cursor: pointer; padding: 3px 5px; margin: 0 -5px 5px; border-radius: 6px; }
+  .clickable-row:hover { background: var(--accent-light); }
   .btn { display: block; width: 100%; text-align: center; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--rule); background: #f7f8fa; font-size: 12px; font-weight: 600; margin-top: 6px; }
   .btn:hover { border-color: var(--accent); background: var(--accent-light); }
   .btn.danger:hover { border-color: var(--bad); background: #fee2e2; color: var(--bad); }
@@ -712,6 +714,23 @@ function pointInPolygon(pt, poly){
 }
 function roomAt(pt){
   return (state.enclosedRooms||[]).find(r => pointInPolygon(pt, r.points)) || null;
+}
+function panToRoom(room){
+  // pan/zoom the viewBox so the whole room is in frame, keeping the current aspect ratio
+  const xs = room.points.map(p=>p.x), ys = room.points.map(p=>p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const pad = Math.max(40, (maxX-minX)*0.15, (maxY-minY)*0.15);
+  const boxW = (maxX-minX) + pad*2, boxH = (maxY-minY) + pad*2;
+  const cx = (minX+maxX)/2, cy = (minY+maxY)/2;
+  const aspect = state.viewBox.w / state.viewBox.h;
+  let newW = boxW, newH = boxH;
+  if (boxW/boxH > aspect) newH = boxW/aspect; else newW = boxH*aspect;
+  state.viewBox.x = cx - newW/2;
+  state.viewBox.y = cy - newH/2;
+  state.viewBox.w = newW;
+  state.viewBox.h = newH;
+  applyViewBox();
+  renderScaleBar();
 }
 
 /* ============================== VIEW / COORDS ============================== */
@@ -1374,17 +1393,24 @@ function renderInspector(){
     const hrA = document.createElement("hr"); hrA.className = "sep"; inspector.appendChild(hrA);
     const aTitle = document.createElement("div"); aTitle.className = "panel-title"; aTitle.textContent = "Enclosed area"; inspector.appendChild(aTitle);
     rooms.forEach((r,i)=>{
+      const goToRoom = ()=>{
+        selection = { type:"room", ids:[roomIdFor(r)] };
+        panToRoom(r);
+        renderAreas(); renderHandles(); renderInspector();
+      };
       const sqm = r.areaCm2/10000;
       const ok = sqm >= 8;
-      const row = document.createElement("div"); row.className = "stat-row";
+      const row = document.createElement("div"); row.className = "stat-row clickable-row";
       row.innerHTML = `<span>${rooms.length>1?"Room "+(i+1):"Room area"}</span><b>${sqm.toFixed(2)} m² <span class="badge ${ok?"ok":"bad"}">${ok?"≥ 8m²":"< 8m² min"}</span></b>`;
+      row.addEventListener("click", goToRoom);
       inspector.appendChild(row);
 
       const wc = roomWindowCheck(r);
-      const wcRow = document.createElement("div"); wcRow.className = "stat-row";
+      const wcRow = document.createElement("div"); wcRow.className = "stat-row clickable-row";
       const wcLabel = wc.exempt ? "WC — exempt" : wc.hasWindow ? (wc.maxDist/100).toFixed(2)+" m to window" : "No external window";
       const wcBadgeText = wc.exempt ? "exempt" : wc.hasWindow ? (wc.ok ? "≤ 9m" : "> 9m max") : "no window";
       wcRow.innerHTML = `<span>${rooms.length>1?"Room "+(i+1)+" window":"Window distance"}</span><b>${wcLabel} <span class="badge ${wc.ok?"ok":"bad"}">${wcBadgeText}</span></b>`;
+      wcRow.addEventListener("click", goToRoom);
       inspector.appendChild(wcRow);
     });
   }
@@ -2123,7 +2149,7 @@ fileInputJson.addEventListener("change", (e)=>{
 });
 
 document.getElementById("btnExportPng").onclick = ()=> exportRaster("image/png", "png");
-document.getElementById("btnExportJpg").onclick = ()=> exportRaster("image/jpeg", "jpg", 0.92);
+document.getElementById("btnExportJpg").onclick = ()=> exportRaster("image/jpeg", "jpg", 1);
 function exportRaster(mime, ext, quality){
   const clone = svg.cloneNode(true);
   clone.querySelectorAll("#handleLayer, #overlayLayer, #gridLayer").forEach(n=>n.remove());
@@ -2137,7 +2163,7 @@ function exportRaster(mime, ext, quality){
   const bx0 = Math.min(...allX)-pad, by0 = Math.min(...allY)-pad;
   const bw = Math.max(...allX)-bx0+pad, bh = Math.max(...allY)-by0+pad;
   clone.setAttribute("viewBox", `${bx0} ${by0} ${bw} ${bh}`);
-  const targetW = 1800;
+  const targetW = 3600; // high-resolution export
   const targetH = Math.round(targetW * (bh/bw));
   clone.setAttribute("width", targetW);
   clone.setAttribute("height", targetH);
